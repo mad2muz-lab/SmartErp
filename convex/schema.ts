@@ -29,13 +29,21 @@ export default defineSchema({
     cr_number_arabic: v.optional(v.string()),
     // Detailed address fields for invoicing and business documents
     building_number: v.optional(v.string()),
+    building_number_arabic: v.optional(v.string()),
     street: v.optional(v.string()),
+    street_arabic: v.optional(v.string()),
     additional_number: v.optional(v.string()),
+    additional_number_arabic: v.optional(v.string()),
     district: v.optional(v.string()),
+    district_arabic: v.optional(v.string()),
     city: v.optional(v.string()),
+    city_arabic: v.optional(v.string()),
     state_province: v.optional(v.string()),
+    state_province_arabic: v.optional(v.string()),
     zip_postal_code: v.optional(v.string()),
+    zip_postal_code_arabic: v.optional(v.string()),
     country: v.optional(v.string()),
+    country_arabic: v.optional(v.string()),
     // Header/Footer display configuration
     header_display_config: v.optional(v.object({
       logo: v.boolean(),
@@ -205,13 +213,21 @@ export default defineSchema({
     address_arabic: v.optional(v.string()), // Arabic address
     // Detailed address fields for invoicing and business documents
     building_number: v.optional(v.string()),
+    building_number_arabic: v.optional(v.string()),
     street: v.optional(v.string()),
+    street_arabic: v.optional(v.string()),
     additional_number: v.optional(v.string()),
+    additional_number_arabic: v.optional(v.string()),
     district: v.optional(v.string()),
+    district_arabic: v.optional(v.string()),
     city: v.optional(v.string()),
+    city_arabic: v.optional(v.string()),
     state_province: v.optional(v.string()),
+    state_province_arabic: v.optional(v.string()),
     zip_postal_code: v.optional(v.string()),
+    zip_postal_code_arabic: v.optional(v.string()),
     country: v.optional(v.string()),
+    country_arabic: v.optional(v.string()),
     website: v.optional(v.string()),
     vat_number: v.optional(v.string()), // Changed from tax_id to vat_number
     cr_number: v.optional(v.string()), // Added CR number field
@@ -630,6 +646,7 @@ export default defineSchema({
     delivery_country: v.optional(v.string()),
     received_by: v.optional(v.string()), // Person who received the delivery
     received_by_signature: v.optional(v.string()), // Digital signature or name
+    customer_po_project_ref: v.optional(v.string()), // Customer PO/Project reference
     status: v.string(), // draft, issued, delivered, completed
     notes: v.optional(v.string()),
     template_id: v.optional(v.id("print_templates")), // Assigned print template
@@ -954,9 +971,13 @@ export default defineSchema({
     expense_date: v.string(),
     category: v.optional(v.string()),
     status: v.optional(v.string()), // Add status field for existing data
+    approval_status: v.optional(v.string()), // Add approval status field
+    invoice_details: v.optional(v.string()), // Add invoice details field
+    remarks: v.optional(v.string()), // Add remarks field
     receipt_url: v.optional(v.string()),
     is_shared: v.optional(v.boolean()), // Whether this expense is shared among partners - made optional for existing data
     shared_percentage: v.optional(v.number()), // Percentage of expense shared among partners
+    paid_by_partner_id: v.optional(v.id("partners")), // Partner who paid for this expense
     created_by: v.string(),
     created_at: v.string(),
     updated_at: v.string(),
