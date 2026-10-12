@@ -1,0 +1,31 @@
+/* Saudi Riyal Font styling for procurement module */
+@import './saudiRiyalSymbol.css';
+
+/* Apply Saudi Riyal font to currency amounts */
+.procurement-currency-sar {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif !important;
+  font-feature-settings: "liga" 1;
+  font-variant-ligatures: normal;
+}
+
+/* Remove double symbols */
+.procurement-currency-sar::after {
+  content: none;
+}
+
+/* Target specific elements that display SAR currency */
+.procurement-currency-sar .chakra-stat__number,
+.procurement-currency-sar .chakra-text {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif;
+}
+
+/* Specific styling for currency displays */
+.currency-sar-symbol {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif !important;
+  font-size: 1em;
+}
+
+/* Ensure percentages and other non-currency values don't get the Saudi Riyal font */
+.procurement-currency-sar:not([data-currency="SAR"]) {
+  font-family: inherit;
+}

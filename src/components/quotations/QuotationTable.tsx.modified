@@ -1,0 +1,359 @@
+import React, { useState, useCallback } from 'react';
+import {
+  Box,
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  Badge,
+  HStack,
+  VStack,
+  Text,
+  IconButton,
+  Tooltip,
+  Icon,
+  useColorModeValue,
+  useDisclosure,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalCloseButton,
+  ModalBody,
+  Button,
+} from '@chakra-ui/react';
+import { FiEye, FiEdit, FiDownload, FiPrinter, FiTrash2, FiDollarSign, FiTruck, FiCopy } from 'react-icons/fi';
+import { useQuery } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+
+interface Quotation {
+  _id: string;
+  _creationTime: number;
+  quotation_number: string;
+  customer_name: string;
+  customer_id: string;
+  subject: string;
+  status: string;
+  valid_until: string;
+  total_amount: number;
+  currency: string;
+  // Lead connection fields
+  lead_id?: string;
+  lead_number?: string;
+}
+
+interface QuotationTableProps {
+  quotations: Quotation[];
+  onView: (quotation: Quotation) => void;
+  onEdit: (quotation: Quotation) => void;
+  onDelete: (quotationId: string) => void;
+  onDownload: (quotation: Quotation) => Promise<void>;
+  onPrint: (quotation: Quotation) => Promise<void>;
+  onGenerateDeliveryNote: (quotationId: string) => void;
+  onCopy: (quotation: Quotation) => void;
+  organizationId?: string;
+}
+
+const QuotationTable: React.FC<QuotationTableProps> = ({
+  quotations,
+  onView,
+  onEdit,
+  onDelete,
+  onDownload,
+  onPrint,
+  onGenerateDeliveryNote,
+  onCopy,
+  organizationId,
+}) => {
+  // Template selection state
+  const [selectedQuotationForTemplate, setSelectedQuotationForTemplate] = useState<Quotation | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const { isOpen: isTemplateModalOpen, onOpen: onTemplateModalOpen, onClose: onTemplateModalClose } = useDisclosure();
+
+  // Fetch available quotation templates
+  const quotationTemplates = useQuery(
+    api.printTemplates.listTemplates,
+    organizationId ? {
+      organization_id: organizationId as any,
+      template_type: 'quotation'
+    } : 'skip'
+  );
+
+  // Template selection handlers
+  const handlePrintWithTemplate = useCallback((quotation: Quotation) => {
+    setSelectedQuotationForTemplate(quotation);
+    setSelectedTemplateId('');
+    onTemplateModalOpen();
+  }, [onTemplateModalOpen]);
+
+  const handleTemplateSelected = useCallback(async (templateId: string | null) => {
+    if (!selectedQuotationForTemplate) {
+      onTemplateModalClose();
+      return;
+    }
+
+    try {
+      if (templateId && quotationTemplates) {
+        // Find the selected template
+        const selectedTemplate = quotationTemplates.find(t => t._id === templateId);
+        if (selectedTemplate) {
+          // Here we would integrate with the PDF generation that uses templates
+          // For now, we'll call the existing print function
+          console.log('Selected template for quotation:', selectedTemplate.name);
+        }
+      }
+
+      // Call the print function (which should now handle templates)
+      await onPrint(selectedQuotationForTemplate);
+    } catch (error) {
+      console.error('Error generating PDF with template:', error);
+    } finally {
+      setSelectedQuotationForTemplate(null);
+      setSelectedTemplateId('');
+      onTemplateModalClose();
+    }
+  }, [selectedQuotationForTemplate, quotationTemplates, onPrint, onTemplateModalClose]);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'draft': return 'gray';
+      case 'sent': return 'blue';
+      case 'accepted': return 'green';
+      case 'rejected': return 'red';
+      case 'expired': return 'orange';
+      default: return 'gray';
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    if (!dateString) return '-';
+    return new Date(dateString).toLocaleDateString();
+  };
+
+  const getCurrencySymbol = (currency: string) => {
+    switch (currency?.toUpperCase()) {
+      case 'SAR': return '﷼'; // Saudi Riyal symbol
+      case 'USD': return '$';
+      case 'EUR': return '€';
+      case 'GBP': return '£';
+      default: return currency || '﷼';
+    }
+  };
+
+  if (quotations.length === 0) {
+    return (
+      <VStack spacing={4} align="center" py={8}>
+        <Text color="gray.500">No quotations found</Text>
+        <Text fontSize="sm" color="gray.400">
+          Create your first quotation to get started
+        </Text>
+      </VStack>
+    );
+  }
+
+  return (
+    <Box overflowX="auto">
+      <Table variant="simple">
+        <Thead>
+          <Tr>
+            <Th>Quotation #</Th>
+            <Th>Customer</Th>
+            <Th>Source</Th>
+            <Th>Quotation Date</Th>
+            <Th>Status</Th>
+            <Th>Valid Until</Th>
+            <Th>Total Amount</Th>
+            <Th>Actions</Th>
+          </Tr>
+        </Thead>
+        <Tbody>
+          {quotations.map((quotation) => (
+            <Tr key={quotation._id}>
+              <Td fontWeight="medium">{quotation.quotation_number}</Td>
+              <Td>
+                <VStack align="flex-start" spacing={1}>
+                  <Text fontWeight="medium">{quotation.customer_name}</Text>
+                </VStack>
+              </Td>
+              <Td>
+                {quotation.lead_number ? (
+                  <VStack align="flex-start" spacing={1}>
+                    <Badge colorScheme="blue" size="sm">
+                      From Lead
+                    </Badge>
+                    <Text fontSize="xs" color="gray.500">
+                      {quotation.lead_number}
+                    </Text>
+                  </VStack>
+                ) : (
+                  <Badge colorScheme="gray" size="sm">
+                    Direct
+                  </Badge>
+                )}
+              </Td>
+              <Td>{formatDate(new Date(quotation._creationTime).toISOString())}</Td>
+              <Td>
+                <Badge colorScheme={getStatusColor(quotation.status)}>
+                  {quotation.status}
+                </Badge>
+              </Td>
+              <Td>{formatDate(quotation.valid_until)}</Td>
+              <Td>
+                <HStack spacing={1}>
+                  <Text fontWeight="medium">
+                    {getCurrencySymbol(quotation.currency)} {quotation.total_amount.toFixed(2)}
+                  </Text>
+                  <Text fontSize="sm" color="gray.500">{quotation.currency}</Text>
+                </HStack>
+              </Td>
+              <Td>
+                <HStack spacing={2}>
+                  <Tooltip label="View Quotation">
+                    <IconButton
+                      aria-label="View quotation"
+                      icon={<FiEye />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onView(quotation)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Edit Quotation">
+                    <IconButton
+                      aria-label="Edit quotation"
+                      icon={<FiEdit />}
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onEdit(quotation)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Download PDF">
+                    <IconButton
+                      aria-label="Download PDF"
+                      icon={<FiDownload />}
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="green"
+                      onClick={async () => await onDownload(quotation)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Print Quotation">
+                    <IconButton
+                      aria-label="Print Quotation"
+                      icon={<FiPrinter />}
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="blue"
+                      onClick={() => handlePrintWithTemplate(quotation)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Copy Quotation">
+                    <IconButton
+                      aria-label="Copy quotation"
+                      icon={<FiCopy />}
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="orange"
+                      onClick={() => onCopy(quotation)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Generate Delivery Note">
+                    <IconButton
+                      aria-label="Generate Delivery Note"
+                      icon={<FiTruck />}
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="purple"
+                      onClick={() => onGenerateDeliveryNote(quotation._id)}
+                    />
+                  </Tooltip>
+                  <Tooltip label="Delete Quotation">
+                    <IconButton
+                      aria-label="Delete quotation"
+                      icon={<FiTrash2 />}
+                      size="sm"
+                      variant="ghost"
+                      colorScheme="red"
+                      onClick={() => onDelete(quotation._id)}
+                    />
+                  </Tooltip>
+                </HStack>
+              </Td>
+            </Tr>
+          ))}
+        </Tbody>
+      </Table>
+    </Box>
+
+    {/* Template Selection Modal */}
+    <Modal isOpen={isTemplateModalOpen} onClose={onTemplateModalClose} size="lg">
+      <ModalOverlay />
+      <ModalContent>
+        <ModalHeader>Select Print Template</ModalHeader>
+        <ModalCloseButton />
+        <ModalBody pb={6}>
+          <VStack spacing={4} align="stretch">
+            {quotationTemplates && quotationTemplates.length > 0 ? (
+              quotationTemplates.map((template) => (
+                <Box
+                  key={template._id}
+                  p={4}
+                  border="1px solid"
+                  borderColor="gray.200"
+                  borderRadius="md"
+                  cursor="pointer"
+                  _hover={{ bg: "gray.50" }}
+                  onClick={() => handleTemplateSelected(template._id)}
+                >
+                  <HStack justify="space-between">
+                    <VStack align="start" spacing={1}>
+                      <Text fontWeight="bold">{template.name}</Text>
+                      {template.description && (
+                        <Text fontSize="sm" color="gray.600">
+                          {template.description}
+                        </Text>
+                      )}
+                    </VStack>
+                    {template.is_default && (
+                      <Badge colorScheme="green">Default</Badge>
+                    )}
+                  </HStack>
+                </Box>
+              ))
+            ) : (
+              <Box textAlign="center" py={8}>
+                <Text color="gray.500" mb={4}>
+                  No quotation templates found. Create a template first.
+                </Text>
+                <Button
+                  colorScheme="blue"
+                  onClick={() => {
+                    onTemplateModalClose();
+                    // You could add navigation to template management here
+                  }}
+                >
+                  Create Template
+                </Button>
+              </Box>
+            )}
+
+            <HStack spacing={4} justify="flex-end" pt={4}>
+              <Button variant="ghost" onClick={onTemplateModalClose}>
+                Cancel
+              </Button>
+              <Button
+                colorScheme="blue"
+                onClick={() => handleTemplateSelected(null)}
+              >
+                Print without Template
+              </Button>
+            </HStack>
+          </VStack>
+        </ModalBody>
+      </ModalContent>
+    </Modal>
+  );
+};
+
+export default QuotationTable;

@@ -1,0 +1,568 @@
+"use node";
+
+import { action } from "../_generated/server";
+import { v } from "convex/values";
+import { DeliveryNoteData, OrganizationData, TemplateData, PDFGenerationResult } from "../types/pdfTypes";
+import { formatDetailedAddress, formatDetailedDeliveryAddress, processTextForPDF, getStatusBadgeClass, validatePDFData } from "../utils/pdfHelpers";
+
+// Delivery Note PDF Generation - RECREATED USING NEW QUOTATION TEMPLATE STRUCTURE
+// FORCE DEPLOYMENT - FIXED FIELD NAMES - UPDATED VALIDATOR
+export const generateDeliveryNotePDF = action({
+  args: {
+    deliveryNoteData: v.object({
+      _id: v.string(),
+      delivery_note_number: v.string(),
+      customer_id: v.string(), // Changed from v.id("customers") to v.string() for flexibility
+      customer_name: v.string(),
+      customer_name_arabic: v.optional(v.string()),
+      issue_date: v.string(),
+      delivery_date: v.string(),
+      delivery_address: v.string(),
+      delivery_address_arabic: v.optional(v.string()),
+      received_by: v.optional(v.string()),
+      received_by_signature: v.optional(v.string()),
+      status: v.string(),
+      notes: v.optional(v.string()),
+      template_id: v.optional(v.string()), // Assigned print template
+      items: v.array(v.object({
+        inventory_name: v.string(),
+        inventory_name_arabic: v.optional(v.string()),
+        quantity: v.number(),
+        unit: v.optional(v.string()),
+        delivered_quantity: v.optional(v.number()),
+        notes: v.optional(v.string()),
+      })),
+    }),
+    orgData: v.object({
+      name: v.string(),
+      name_arabic: v.optional(v.string()),
+      address: v.optional(v.string()),
+      address_arabic: v.optional(v.string()),
+      vat_number: v.optional(v.string()),
+      vat_number_arabic: v.optional(v.string()),
+      cr_number: v.optional(v.string()),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      website: v.optional(v.string()),
+      logo_url: v.optional(v.string()),
+      header_config: v.optional(v.any()),
+      footer_config: v.optional(v.any()),
+      // Custom header/footer image fields
+      company_header_image_url: v.optional(v.string()),
+      company_footer_image_url: v.optional(v.string()),
+      use_custom_header_footer: v.optional(v.boolean()),
+    }),
+    templateData: v.optional(v.any()),
+    action: v.union(v.literal("print"), v.literal("download")),
+  },
+  returns: v.object({
+    success: v.boolean(),
+    htmlContent: v.optional(v.string()),
+    error: v.optional(v.string()),
+  }),
+  handler: async (ctx, args): Promise<PDFGenerationResult> => {
+    try {
+      console.log('🚀 NEW DELIVERY NOTE PDF GENERATION FUNCTION CALLED! 🚀');
+
+      // Validate required data
+      if (!args.deliveryNoteData) {
+        throw new Error('deliveryNoteData is required');
+      }
+      if (!args.orgData) {
+        throw new Error('orgData is required');
+      }
+      if (!args.deliveryNoteData.items) {
+        console.warn('No items provided, using empty array');
+        args.deliveryNoteData.items = [];
+      }
+
+      console.log('Delivery Note PDF Generation - Data received:', {
+        deliveryNoteData: args.deliveryNoteData,
+        orgData: args.orgData,
+        headerConfig: args.orgData.header_config,
+        footerConfig: args.orgData.footer_config,
+        itemsCount: args.deliveryNoteData.items?.length || 0,
+        items: args.deliveryNoteData.items
+      });
+
+      // Debug organization data
+      console.log('🔍 Organization Debug:', {
+        name: args.orgData.name,
+        name_arabic: args.orgData.name_arabic,
+        logo_url: args.orgData.logo_url,
+        header_config: args.orgData.header_config,
+        header_config_logo: args.orgData.header_config?.logo,
+        header_config_name: args.orgData.header_config?.name,
+        full_org_data: args.orgData
+      });
+
+      // Debug template generation
+      console.log('🔍 Template Debug:', {
+        headerConfig_logo: args.orgData.header_config?.logo,
+        has_logo_url: !!args.orgData.logo_url,
+        headerConfig_name: args.orgData.header_config?.name,
+        has_name: !!args.orgData.name,
+        logo_condition: args.orgData.header_config?.logo && args.orgData.logo_url,
+        name_condition: args.orgData.header_config?.name
+      });
+
+      // Use template data if available, otherwise fall back to organization data
+      const effectiveOrgData = args.templateData && args.templateData.header_config ? {
+        ...args.orgData,
+        header_config: args.templateData.header_config || args.orgData.header_config,
+        footer_config: args.templateData.footer_config || args.orgData.footer_config,
+      } : args.orgData;
+
+      console.log('🔍 Effective Org Data:', {
+        name: effectiveOrgData.name,
+        logo_url: effectiveOrgData.logo_url,
+        header_config: effectiveOrgData.header_config,
+        footer_config: effectiveOrgData.footer_config
+      });
+
+      // Generate HTML content
+      let htmlContent;
+      try {
+        htmlContent = generateDeliveryNoteHTML(args.deliveryNoteData, effectiveOrgData, args.templateData);
+        console.log('✅ HTML Content generated successfully, length:', htmlContent.length);
+      } catch (htmlError) {
+        console.error('❌ HTML Generation Error:', htmlError);
+        throw new Error(`HTML Generation failed: ${htmlError instanceof Error ? htmlError.message : 'Unknown error'}`);
+      }
+
+      return {
+        success: true,
+        htmlContent: htmlContent,
+      };
+    } catch (error) {
+      console.error('Delivery Note PDF Generation Error:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      };
+    }
+  }
+});
+
+// Generate HTML content for delivery note using EXACT SAME structure as NEW quotation template
+function generateDeliveryNoteHTML(data: DeliveryNoteData, orgData: OrganizationData, templateData?: any): string {
+  try {
+    console.log('🔍 HTML Generation Debug - Starting function');
+
+    const deliveryNoteData = data;
+    const organization = orgData;
+    const items = data.items || [];
+
+    console.log('🔍 HTML Generation Debug:', {
+      itemsCount: items.length,
+      items: items,
+      headerConfig: organization.header_config,
+      footerConfig: organization.footer_config,
+      deliveryNoteNumber: deliveryNoteData.delivery_note_number,
+      customerName: deliveryNoteData.customer_name
+    });
+
+    // Validate required data
+    if (!deliveryNoteData.delivery_note_number) {
+      throw new Error('Delivery note number is required');
+    }
+    if (!organization.name) {
+      throw new Error('Organization name is required');
+    }
+
+    // Get header and footer configurations with defaults (EXACT SAME as NEW quotation template)
+    const headerConfig = organization.header_config || {
+      logo: true,
+      name: true,
+      name_arabic: true,
+      email: true,
+      phone: true,
+      address: true,
+      address_arabic: true,
+      website: true,
+      vat_number: true,
+      vat_number_arabic: true,
+      cr_number: true,
+      cr_number_arabic: true
+    };
+
+    const footerConfig = organization.footer_config || {
+      name: true,
+      name_arabic: true,
+      email: true,
+      phone: true,
+      address: true,
+      address_arabic: true,
+      website: true,
+      vat_number: true,
+      vat_number_arabic: true,
+      cr_number: true,
+      cr_number_arabic: true,
+      industry: false
+    };
+
+    // Get template styles if available
+    const templateStyles = templateData?.custom_styles || {};
+    const primaryColor = templateStyles.primary_color || "#333333";
+    const secondaryColor = templateStyles.secondary_color || "#666666";
+    const fontFamily = templateStyles.font_family || "Arial, sans-serif";
+    const fontSize = templateStyles.font_size || "10px";
+    const borderStyle = templateStyles.border_style || "solid";
+    const borderWidth = templateStyles.border_width || "1px";
+
+    return `<!DOCTYPE html>
+<html dir="ltr" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delivery Note</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=block" rel="stylesheet">
+    <style>
+        body {
+            font-family: ${fontFamily};
+            margin: 0;
+            padding: 20px;
+            font-size: ${fontSize};
+            line-height: 1.4;
+            color: ${primaryColor};
+            background: white;
+            box-sizing: border-box;
+        }
+
+        /* Professional letterhead header - EXACT SAME as quotation */
+        .letterhead {
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+            border-top: none;
+            padding: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 50px;
+            background: white;
+            margin-bottom: 20px;
+        }
+
+        /* Main content area - EXACT SAME as quotation */
+        .main-content {
+            margin-bottom: 20px;
+        }
+
+        /* Company info sections - EXACT SAME as quotation */
+        .english-company {
+            flex: 1;
+            text-align: left;
+            align-self: flex-start;
+        }
+
+        .center-logo {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+        }
+
+        .arabic-company {
+            flex: 1;
+            text-align: right;
+            direction: rtl;
+            font-family: 'Noto Sans Arabic', Arial, sans-serif;
+            align-self: flex-start;
+        }
+
+        /* Delivery note title - SAME STRUCTURE as quotation title */
+        .delivery-note-title {
+            text-align: center;
+            margin: 0 0 10px 0;
+            padding: 8px;
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+            background-color: #f5f5f5;
+        }
+
+        .title {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 3px;
+            color: ${primaryColor};
+        }
+
+        .arabic-title {
+            font-size: 12px;
+            font-weight: bold;
+            direction: rtl;
+            font-family: 'Noto Sans Arabic', Arial, sans-serif;
+            color: ${primaryColor};
+        }
+
+        /* Delivery note details section - SAME STRUCTURE as quotation details */
+        .delivery-note-details-section {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 6px;
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+        }
+
+        .delivery-left {
+            text-align: left;
+        }
+
+        .delivery-right {
+            text-align: right;
+        }
+
+        /* Customer name with Arabic support - EXACT SAME as quotation */
+        .customer-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .customer-name-arabic {
+            direction: rtl;
+            font-family: 'Noto Sans Arabic', Arial, sans-serif;
+            font-size: 9px;
+            color: #666;
+        }
+
+        /* Items table - EXACT SAME structure as quotation */
+        .items-section {
+            margin-bottom: 10px;
+        }
+
+        .items-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+            font-size: 9px;
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+        }
+
+        .items-table th,
+        .items-table td {
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+            padding: 4px 6px;
+            text-align: left;
+            vertical-align: top;
+        }
+
+        .items-table th {
+            background-color: #e6e6e6;
+            color: ${primaryColor};
+            font-weight: bold;
+            text-align: center;
+            font-size: 9px;
+        }
+
+        .items-table td:first-child,
+        .items-table td:nth-child(3),
+        .items-table td:nth-child(4),
+        .items-table td:nth-child(5) {
+            text-align: center;
+        }
+
+        /* Item name with Arabic support - EXACT SAME as quotation */
+        .item-name {
+            font-weight: normal;
+        }
+
+        .item-name-arabic {
+            direction: rtl;
+            font-family: 'Noto Sans Arabic', Arial, sans-serif;
+            font-size: 9px;
+            color: #666;
+            margin-top: 2px;
+        }
+
+        /* Signature section - DELIVERY NOTE SPECIFIC */
+        .signature-section {
+            margin-top: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .signature-box {
+            width: 45%;
+            padding: 8px;
+            border: ${borderWidth} ${borderStyle} ${primaryColor};
+            text-align: center;
+            font-size: 9px;
+        }
+
+        .signature-line {
+            border-top: ${borderWidth} ${borderStyle} ${primaryColor};
+            margin-top: 30px;
+            padding-top: 8px;
+        }
+
+        /* Professional footer - EXACT SAME as quotation */
+        .footer {
+            padding: 8px;
+            border: 2px ${borderStyle} ${primaryColor};
+            border-bottom: none;
+            display: flex;
+            justify-content: space-between;
+            font-size: 8px;
+            background: white;
+            margin-top: 20px;
+        }
+
+        .footer-left {
+            text-align: left;
+        }
+
+        .footer-right {
+            text-align: right;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .status-draft { background-color: #ffd700; color: #333; }
+        .status-issued { background-color: #87ceeb; color: #333; }
+        .status-delivered { background-color: #90ee90; color: #333; }
+        .status-completed { background-color: #32cd32; color: white; }
+
+        @media print {
+            body { margin: 0; }
+            .letterhead { page-break-after: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Professional Letterhead at Top - EXACT SAME as quotation -->
+    <div class="letterhead">
+        <!-- Left Side: English Company Info -->
+        <div class="english-company">
+            ${headerConfig.name ? `<div style="font-weight: bold; font-size: 11px; margin-bottom: 2px;">${organization.name || ''}</div>` : ''}
+            ${headerConfig.address ? `<div style="font-size: 9px; margin-bottom: 1px;">${organization.address || ''}</div>` : ''}
+            ${headerConfig.email ? `<div style="font-size: 9px; margin-bottom: 1px;">Email: ${organization.email || ''}</div>` : ''}
+            ${headerConfig.phone ? `<div style="font-size: 9px; margin-bottom: 1px;">Phone: ${organization.phone || ''}</div>` : ''}
+            ${headerConfig.website ? `<div style="font-size: 9px; margin-bottom: 1px;">Website: ${organization.website || ''}</div>` : ''}
+            ${headerConfig.vat_number ? `<div style="font-size: 9px; margin-bottom: 1px;">VAT: ${organization.vat_number || ''}</div>` : ''}
+            ${headerConfig.cr_number ? `<div style="font-size: 9px; margin-bottom: 1px;">CR: ${organization.cr_number || ''}</div>` : ''}
+        </div>
+
+        <!-- Center: Logo or Title -->
+        <div class="center-logo">
+            ${headerConfig.logo && organization.logo_url ? `<img src="${organization.logo_url}" alt="Logo" style="max-height: 80px; max-width: 150px; object-fit: contain;">` : ''}
+        </div>
+
+        <!-- Right Side: Arabic Company Info -->
+        <div class="arabic-company">
+            ${headerConfig.name_arabic ? `<div style="font-weight: bold; font-size: 11px; margin-bottom: 2px;">${organization.name_arabic || ''}</div>` : ''}
+            ${headerConfig.address_arabic ? `<div style="font-size: 9px; margin-bottom: 1px;">${organization.address_arabic || ''}</div>` : ''}
+            ${headerConfig.vat_number_arabic ? `<div style="font-size: 9px; margin-bottom: 1px;">رقم الضريبة: ${organization.vat_number_arabic || ''}</div>` : ''}
+            ${headerConfig.cr_number_arabic ? `<div style="font-size: 9px; margin-bottom: 1px;">السجل التجاري: ${organization.cr_number_arabic || ''}</div>` : ''}
+        </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <div class="main-content">
+        <!-- Delivery Note Title - SAME STRUCTURE as quotation title -->
+        <div class="delivery-note-title">
+            <div class="title">DELIVERY NOTE</div>
+            <div class="arabic-title">مذكرة تسليم</div>
+        </div>
+
+        <!-- Delivery Note Details - SAME STRUCTURE as quotation details -->
+        <div class="delivery-note-details-section">
+            <div class="delivery-left">
+                <div><strong>Delivery Note #:</strong> ${deliveryNoteData.delivery_note_number}</div>
+                <div><strong>Issue Date:</strong> ${deliveryNoteData.issue_date}</div>
+                <div><strong>Delivery Date:</strong> ${deliveryNoteData.delivery_date}</div>
+                <div><strong>Status:</strong> <span class="status-badge status-${getStatusBadgeClass(deliveryNoteData.status)}">${deliveryNoteData.status}</span></div>
+                ${deliveryNoteData.notes ? `<div><strong>Notes:</strong> ${deliveryNoteData.notes}</div>` : ''}
+            </div>
+            <div class="delivery-right">
+                <div class="customer-name"><strong>Customer:</strong> ${deliveryNoteData.customer_name}</div>
+                ${deliveryNoteData.customer_name_arabic ? `<div class="customer-name-arabic">${deliveryNoteData.customer_name_arabic}</div>` : ''}
+                <div><strong>Delivery Address:</strong> ${formatDetailedDeliveryAddress(deliveryNoteData)}</div>
+                ${deliveryNoteData.delivery_address_arabic ? `<div style="direction: rtl; font-family: 'Noto Sans Arabic', Arial, sans-serif; font-size: 9px; color: #666;">${deliveryNoteData.delivery_address_arabic}</div>` : ''}
+            </div>
+        </div>
+
+        <!-- Items Table - EXACT SAME structure as quotation but with delivery-specific columns -->
+        <div class="items-section">
+            <div style="font-size: 10px; font-weight: bold; margin-bottom: 4px; color: ${primaryColor};">Items to be Delivered</div>
+
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Item & Description</th>
+                        <th>Quantity</th>
+                        <th>Unit</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.length > 0 ? items.map((item, index) => `
+                        <tr>
+                            <td>${index + 1}</td>
+                            <td>
+                                <div class="item-name">${item.inventory_name || 'N/A'}</div>
+                                ${item.inventory_name_arabic ? `<div class="item-name-arabic">${item.inventory_name_arabic}</div>` : ''}
+                            </td>
+                            <td>${item.delivered_quantity || item.quantity || 0}</td>
+                            <td>${item.unit || 'pcs'}</td>
+                            <td>${item.notes || ''}</td>
+                        </tr>
+                    `).join('') : '<tr><td colspan="5">No items found</td></tr>'}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Signature Section - DELIVERY NOTE SPECIFIC -->
+        <div class="signature-section">
+            <div class="signature-box">
+                <div style="font-weight: bold; margin-bottom: 8px;">Received By</div>
+                <div style="margin-bottom: 4px;">Name: ${deliveryNoteData.received_by || '________________'}</div>
+                <div style="margin-bottom: 4px;">Date: ________________</div>
+                <div class="signature-line"></div>
+                <div style="font-size: 9px; margin-top: 4px;">Signature</div>
+            </div>
+
+            <div class="signature-box">
+                <div style="font-weight: bold; margin-bottom: 8px;">Delivered By</div>
+                <div style="margin-bottom: 4px;">Name: ________________</div>
+                <div style="margin-bottom: 4px;">Date: ________________</div>
+                <div class="signature-line"></div>
+                <div style="font-size: 9px; margin-top: 4px;">Signature</div>
+            </div>
+        </div>
+
+        <!-- Professional Footer - EXACT SAME as quotation -->
+        <div class="footer">
+            <div class="footer-left">
+                ${footerConfig.name ? `<div style="font-weight: bold; margin-bottom: 2px;">${organization.name || ''}</div>` : ''}
+                ${footerConfig.address ? `<div style="font-size: 8px; margin-bottom: 1px;">${organization.address || ''}</div>` : ''}
+                ${footerConfig.email ? `<div style="font-size: 8px; margin-bottom: 1px;">Email: ${organization.email || ''}</div>` : ''}
+                ${footerConfig.phone ? `<div style="font-size: 8px; margin-bottom: 1px;">Phone: ${organization.phone || ''}</div>` : ''}
+            </div>
+
+            <div class="footer-right">
+                ${footerConfig.name_arabic ? `<div style="font-weight: bold; margin-bottom: 2px; direction: rtl; font-family: 'Noto Sans Arabic', Arial, sans-serif;">${organization.name_arabic || ''}</div>` : ''}
+                ${footerConfig.address_arabic ? `<div style="font-size: 8px; margin-bottom: 1px; direction: rtl; font-family: 'Noto Sans Arabic', Arial, sans-serif;">${organization.address_arabic || ''}</div>` : ''}
+                ${footerConfig.vat_number_arabic ? `<div style="font-size: 8px; margin-bottom: 1px; direction: rtl; font-family: 'Noto Sans Arabic', Arial, sans-serif;">رقم الضريبة: ${organization.vat_number_arabic || ''}</div>` : ''}
+                ${footerConfig.cr_number_arabic ? `<div style="font-size: 8px; margin-bottom: 1px; direction: rtl; font-family: 'Noto Sans Arabic', Arial, sans-serif;">السجل التجاري: ${organization.cr_number_arabic || ''}</div>` : ''}
+                ${footerConfig.website ? `<div style="font-size: 8px; margin-bottom: 1px;">Website: ${organization.website || ''}</div>` : ''}
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+  } catch (error) {
+    console.error('❌ Error in generateDeliveryNoteHTML:', error);
+    throw new Error(`HTML generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+}

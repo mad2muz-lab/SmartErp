@@ -3,10 +3,12 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
 # Environment variables
 .env
 .env.local
+.env.*.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -16,6 +18,11 @@ dist/
 build/
 .next/
 out/
+.vite/
+
+# Convex local state & generated
+.convex/
+convex/_generated/
 
 # IDE files
 .vscode/
@@ -26,69 +33,20 @@ out/
 # OS files
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
-# Logs
+# Logs & temp
 logs/
 *.log
-
-# Runtime data
+tmp/
+temp/
+coverage/
 pids/
 *.pid
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
-coverage/
-
-# Temporary files
-tmp/
-temp/
-
-# Convex
-.convex/
-
-# Keep invoicing files and explicitly maintained module files
-# Exclude other source until added to the allow-list
-src/*
-!src/screens/
-src/screens/*
-!src/App.tsx
-!src/components/
-src/components/*
-!src/contexts/
-src/contexts/*
-!src/utils/
-src/utils/*
-!src/screens/InvoiceManagementScreen.tsx
-!src/components/invoices/
-!src/contexts/
-!src/utils/invoiceCurrencyUtils.ts
-!src/components/PermissionGuard.tsx
-!src/components/OrganizationSelector.tsx
-!src/screens/LoginScreen.tsx
-!src/screens/CustomerListScreen.tsx
-!src/components/CustomerForm.tsx
-!src/screens/HRManagementScreen.tsx
-!src/screens/InternationalHiringDemoScreen.tsx
-
-# Convex files - include invoicing and explicitly maintained modules
-convex/*
-!convex/invoiceManagement.ts
-!convex/zatcaInvoiceTemplate.ts
-!convex/customers.ts
-!convex/organizations.ts
-!convex/auth.ts
-!convex/globalUserManagement.ts
-!convex/schema.ts
-!convex/profitSharing.ts
-!convex/leaves.ts
-!convex/whatsappApprovals.ts
-!convex/http.ts
-
-# Keep package files
-package.json
-package-lock.json
-vite.config.ts
-tsconfig.json
-tsconfig.node.json
-index.html
+# Expo & caches
+.expo/
+.cache/
+*.tsbuildinfo

@@ -1,0 +1,65 @@
+/* Official SAMA Saudi Riyal New Symbol Font & Styling */
+/* Source: abdulrysrr/new-saudi-riyal-symbol */
+
+@font-face {
+  font-family: 'SaudiRiyalSymbol';
+  src: url('/fonts/saudiriyalsymbol.woff2') format('woff2'),
+       url('/fonts/saudiriyalsymbol.woff') format('woff'),
+       url('/fonts/saudiriyalsymbol.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'saudi_riyal';
+  src: url('/fonts/saudiriyalsymbol.woff2') format('woff2'),
+       url('/fonts/saudiriyalsymbol.woff') format('woff'),
+       url('/fonts/saudiriyalsymbol.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, 'SaudiRiyalSymbol', sans-serif !important;
+}
+
+/* Unicode U+E900 in the bundled Saudi Riyal symbol font. */
+.icon-saudi_riyal {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', sans-serif !important;
+  font-style: normal;
+  font-weight: normal;
+  font-variant: normal;
+  text-transform: none;
+  line-height: 1;
+  display: inline-block;
+  vertical-align: -0.05em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.icon-saudi_riyal:empty::before,
+.saudi-riyal-symbol-glyph::before {
+  content: "\e900";
+}
+
+.saudi-riyal-new-symbol {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', sans-serif !important;
+  display: inline-block;
+  line-height: 1;
+  vertical-align: -0.05em;
+}
+
+.currency-sar-symbol {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', sans-serif !important;
+  font-style: normal;
+  display: inline-block;
+}
+
+/* Procurement & general SAR currency display */
+.procurement-currency-sar {
+  font-family: 'SaudiRiyalSymbol', 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif !important;
+  font-feature-settings: "liga" 1;
+  font-variant-ligatures: normal;
+}

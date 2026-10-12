@@ -1,0 +1,30 @@
+/* Saudi Riyal Font styling for invoice module */
+
+/* Apply Saudi Riyal font only to currency amounts, not percentages or other values */
+.invoice-currency-sar {
+  font-family: 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif !important;
+  font-feature-settings: "liga" 1;
+  font-variant-ligatures: normal;
+}
+
+/* Remove the ::after pseudo-element that was causing double symbols */
+.invoice-currency-sar::after {
+  content: none;
+}
+
+/* Target specific elements that display SAR currency */
+.invoice-currency-sar .chakra-stat__number,
+.invoice-currency-sar .chakra-text {
+  font-family: 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif;
+}
+
+/* Specific styling for currency displays */
+.currency-sar-symbol {
+  font-family: 'saudi_riyal', 'Arial Unicode MS', 'Arial', sans-serif;
+  font-size: 1em;
+}
+
+/* Ensure percentages and other non-currency values don't get the Saudi Riyal font */
+.invoice-currency-sar:not([data-currency="SAR"]) {
+  font-family: inherit;
+}

@@ -1,0 +1,2078 @@
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useAction, useConvex } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { useAuth } from '../../contexts/shared/AuthContext';
+import toast from 'react-hot-toast';
+import { ArabicPDFRenderer, ArabicPDFData } from './ArabicPDFRenderer';
+import { MultiPagePDFGenerator, MultiPagePDFData } from './MultiPagePDFGenerator';
+
+
+export interface QuotationItem {
+  id: string;
+  serial_number?: string; // [2025-01-11] Added - Serial number for item identification
+  wbs_code?: string; // e.g. "1.0", "1.1", "1.2"
+  item_title?: string; // Title / heading for the line item
+  is_section_header?: boolean; // Section / Category header flag
+  item_name: string;
+  item_id: string;
+  quantity: number;
+  unit?: string; // Unit field for quotation items
+  unit_price: number;
+  total_price: number;
+  description: string;
+  discount_percentage: number;
+  purchase_price: number;
+  markup_amount?: number;
+  // [2025-01-11] Added - VAT amount per line item for enhanced quotation management
+  vat_amount?: number; // VAT amount per line item
+}
+
+export interface QuotationFormData {
+  quotation_number: string;
+  customer_id: string;
+  customer_name: string;
+  reference_number: string; // Renamed from subject
+  description: string;
+  status: string;
+  valid_until: string;
+  terms_conditions: string;
+  notes: string;
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total_amount: number;
+  currency: string;
+  // New fields for enhanced quotation management
+  salesperson: string;
+  markup_percentage: number;
+  // Lead connection fields - optional as quotations can be created directly or from leads
+  lead_id?: string;
+  lead_number?: string;
+}
+
+export const useQuotationLogic = (selectedOrganization: string | null, authData?: { user: any; loading: boolean }) => {
+  // Always use useAuth() directly to get the most up-to-date organization details
+  // The authData parameter is kept for compatibility but we'll use useAuth() for organizationDetails
+  const { organizationDetails, loading: authLoading, user } = useAuth();
+  const orgDetails = organizationDetails as any;
+  
+  // Initialize Convex client for API calls (same as delivery notes)
+  const client = useConvex();
+
+  // Return null only if no organization is selected
+  // Allow it to proceed if user exists, regardless of authLoading state
+  if (!selectedOrganization) {
+    return null;
+  }
+
+  // Return loading state if still initializing
+  if (authLoading) {
+    return null;
+  }
+
+  // Wait for organization details to load (with timeout to prevent infinite loading)
+  if (selectedOrganization && !organizationDetails) {
+    console.log('useQuotationLogic: Organization details not yet loaded, continuing with null fallback');
+    // Don't return null - proceed with null organization details and let fallback defaults handle it
+  }
+
+  // Form state
+  const [formData, setFormData] = useState<QuotationFormData>({
+    quotation_number: '',
+    customer_id: '',
+    customer_name: '',
+    reference_number: '', // Renamed from subject
+    description: '',
+    status: 'draft',
+    valid_until: '',
+    terms_conditions: '',
+    notes: '',
+    subtotal: 0,
+    tax_rate: 15, // Fixed VAT rate as per Saudi regulations
+    tax_amount: 0,
+    total_amount: 0,
+    currency: orgDetails?.currency || 'SAR',
+    // New fields for enhanced quotation management
+    salesperson: '',
+    markup_percentage: 0,
+    // Initialize lead fields as undefined (they'll be set when creating from leads)
+    lead_id: undefined,
+    lead_number: undefined,
+  });
+
+  // Items state for quotation
+  const [quotationItems, setQuotationItems] = useState<QuotationItem[]>([]);
+
+  // Fetch quotations
+  const quotations = useQuery(
+    api.quotations.listQuotations,
+    selectedOrganization ? { organization_id: selectedOrganization as any } : 'skip'
+  );
+
+  // [2025-01-11] Added - Enhanced quotations with delivery status
+  const [enhancedQuotations, setEnhancedQuotations] = useState<any[]>([]);
+  
+  useEffect(() => {
+    if (quotations && selectedOrganization) {
+      // Enhance quotations with delivery status
+      const enhanceQuotations = async () => {
+        const enhanced = await Promise.all(
+          quotations.map(async (quotation: any) => {
+            try {
+              const deliveryStatus = await client.query(api.quotations.getQuotationDeliveryStatus, {
+                quotation_id: quotation._id
+              });
+              return {
+                ...quotation,
+                delivery_status: deliveryStatus
+              };
+            } catch (error) {
+              console.error(`Failed to load delivery status for quotation ${quotation._id}:`, error);
+              return {
+                ...quotation,
+                delivery_status: {
+                  can_create_delivery_note: true,
+                  delivery_notes_count: 0,
+                  total_items: 0,
+                  fully_delivered_items: 0,
+                  partially_delivered_items: 0,
+                  pending_items: 0
+                }
+              };
+            }
+          })
+        );
+        setEnhancedQuotations(enhanced);
+      };
+      
+      enhanceQuotations();
+    } else {
+      setEnhancedQuotations([]);
+    }
+  }, [quotations, selectedOrganization, client]);
+
+  // Fetch customers for dropdown
+  const customers = useQuery(
+    api.customers.listCustomers,
+    selectedOrganization ? { organization_id: selectedOrganization as any } : 'skip'
+  );
+
+  // Fetch inventory for item selection
+  const inventory = useQuery(
+    api.inventory.listInventory,
+    selectedOrganization ? { organization_id: selectedOrganization as any } : 'skip'
+  );
+
+  // Reduced logging for performance
+
+  // Get all entries for smart dropdowns
+  const allCustomers = customers?.map(c => {
+    const englishName = c.customer_company_name;
+    const arabicName = c.customer_company_name_arabic;
+    // If Arabic name exists, show both: "English Name | الاسم العربي"
+    return arabicName ? `${englishName} | ${arabicName}` : englishName;
+  }) || [];
+  
+  const allInventoryItems = inventory?.map(i => {
+    const englishName = i.name;
+    const arabicName = i.name_arabic;
+    // If Arabic name exists, show both: "English Name | الاسم العربي"
+    return arabicName ? `${englishName} | ${arabicName}` : englishName;
+  }) || [];
+
+  // Update form data when organization details change
+  useEffect(() => {
+    if (orgDetails) {
+      setFormData(prev => ({
+        ...prev,
+        currency: orgDetails.currency || 'SAR',
+        tax_rate: orgDetails.vat_rate ? parseFloat(orgDetails.vat_rate) : 15,
+      }));
+    }
+  }, [orgDetails]);
+
+  // Mutations
+  const createQuotation = useMutation(api.quotations.createQuotation);
+  const updateQuotation = useMutation(api.quotations.updateQuotation);
+  const deleteQuotation = useMutation(api.quotations.deleteQuotation);
+  const createQuotationItem = useMutation(api.quotations.createQuotationItem);
+  const createQuotationItemEnhanced = useMutation(api.quotations.createQuotationItemEnhanced);
+  // [2025-01-11] Added - New mutations for updating quotation items in database
+  const updateQuotationItemDB = useMutation(api.quotations.updateQuotationItem);
+  const deleteQuotationItemDB = useMutation(api.quotations.deleteQuotationItem);
+  const createCustomer = useMutation(api.customers.createCustomer);
+  const createInventory = useMutation(api.inventory.createInventory);
+  const getFileUrl = useAction(api.fileUpload.getFileUrl);
+  const getQuotationItemsForPDF = useAction(api.quotations.getQuotationItemsForPDF);
+  const generateArabicPDFAction = useAction(api.pdfGenerator.generateArabicPDF);
+  const generateMultiPagePDFAction = useAction(api.multiPagePDF.generateMultiPagePDF);
+  
+  // New mutations for enhanced functionality
+  const importQuotationItems = useMutation(api.quotations.importQuotationItems);
+  const saveOrganizationTerms = useMutation(api.quotations.saveOrganizationTerms);
+
+  // State to track which quotation's items to load
+  const [selectedQuotationForItems, setSelectedQuotationForItems] = useState<string | null>(null);
+
+
+
+  // Query to load quotation items when a quotation is selected
+  const quotationItemsData = useQuery(
+    api.quotations.listQuotationItems,
+    selectedQuotationForItems ? { quotation_id: selectedQuotationForItems as any } : 'skip'
+  );
+
+  // Handle quotation items data when it loads
+  useEffect(() => {
+    if (quotationItemsData && selectedQuotationForItems) {
+      console.log('Quotation items data loaded:', quotationItemsData);
+      
+      // Convert database items to form items
+      const formItems = quotationItemsData.map((item, index) => ({
+        id: item._id,
+        serial_number: item.wbs_code || (index + 1).toString(),
+        wbs_code: item.wbs_code,
+        item_title: item.item_title || '',
+        is_section_header: Boolean(item.is_section_header),
+        item_id: item.inventory_id,
+        item_name: item.inventory_name || (item.is_section_header ? (item.item_title || '') : 'Unknown Item'),
+        quantity: item.quantity,
+        unit: item.unit || 'pcs',
+        unit_price: item.unit_price,
+        total_price: item.total_price,
+        description: item.notes || '',
+        discount_percentage: item.discount_percentage || 0,
+        purchase_price: item.purchase_price || 0,
+        markup_amount: item.markup_amount || 0,
+        // [2025-01-11] Added - Include vat_amount from database or calculate if missing
+        vat_amount: item.vat_amount || ((item.total_price * 15) / 100),
+        rate: item.unit_price,
+        amount: item.total_price,
+        tax_amount: (item.unit_price * item.quantity * (15)) / 100,
+      }));
+      
+      const hasAnySavedWBS = formItems.some(i => Boolean(i.wbs_code));
+      if (hasAnySavedWBS) {
+        setQuotationItems(formItems);
+      } else {
+        setQuotationItems(recalculateWBS(formItems));
+      }
+      console.log('Converted form items:', formItems);
+    }
+  }, [quotationItemsData, selectedQuotationForItems]);
+
+  // Add a state to force re-render of customer dropdown
+  const [customerRefreshKey, setCustomerRefreshKey] = useState(0);
+  const [inventoryRefreshKey, setInventoryRefreshKey] = useState(0);
+
+  // Update subtotal based on items
+  const updateSubtotal = () => {
+    const subtotal = Number(quotationItems.reduce((sum, item) => sum + item.total_price, 0).toFixed(2));
+    setFormData(prev => ({ ...prev, subtotal }));
+  };
+
+  // Live calculation updates - automatically recalculate VAT and total when items change
+  useEffect(() => {
+    // Recalculate everything when items change
+    const subtotal = quotationItems.reduce((sum, item) => sum + item.total_price, 0);
+    const taxAmount = subtotal * 0.15; // Fixed 15% VAT
+    const totalAmount = subtotal + taxAmount;
+    
+    setFormData(prev => ({
+      ...prev,
+      subtotal: Number(subtotal.toFixed(2)),
+      tax_rate: 15, // Always 15%
+      tax_amount: Number(taxAmount.toFixed(2)),
+      total_amount: Number(totalAmount.toFixed(2))
+    }));
+  }, [quotationItems]);
+
+  // Helper to re-calculate clean WBS / serial numbers
+  const recalculateWBS = (items: QuotationItem[], forceAll = false): QuotationItem[] => {
+    let majorIndex = 0;
+    let subIndex = 0;
+    const hasSections = items.some(i => i.is_section_header);
+
+    return items.map((item, overallIndex) => {
+      if (item.is_section_header) {
+        majorIndex += 1;
+        subIndex = 0;
+        const code = forceAll || !item.wbs_code ? majorIndex.toString() : item.wbs_code;
+        return {
+          ...item,
+          serial_number: code,
+          wbs_code: code,
+        };
+      } else {
+        if (hasSections) {
+          subIndex += 1;
+          const defaultMajor = majorIndex > 0 ? majorIndex : 1;
+          const code = forceAll || !item.wbs_code ? `${defaultMajor}.${subIndex}` : item.wbs_code;
+          return {
+            ...item,
+            serial_number: code,
+            wbs_code: code,
+          };
+        } else {
+          // If no section headers in list:
+          const code = forceAll 
+            ? `1.${overallIndex + 1}` 
+            : (item.wbs_code || (overallIndex + 1).toString());
+          return {
+            ...item,
+            serial_number: code,
+            wbs_code: code,
+          };
+        }
+      }
+    });
+  };
+
+  // Add new quotation line item (1.1, 1.2, 2.1, etc.)
+  const addQuotationItem = () => {
+    // Determine the next WBS number
+    let nextWBS = '1.1';
+    let majorIndex = 0;
+    let subIndex = 0;
+    const hasSections = quotationItems.some(i => i.is_section_header);
+
+    if (hasSections) {
+      for (const item of quotationItems) {
+        if (item.is_section_header) {
+          majorIndex += 1;
+          subIndex = 0;
+        } else {
+          subIndex += 1;
+        }
+      }
+      const activeMajor = majorIndex > 0 ? majorIndex : 1;
+      nextWBS = `${activeMajor}.${subIndex + 1}`;
+    } else if (quotationItems.length > 0) {
+      const lastItem = quotationItems[quotationItems.length - 1];
+      const lastCode = lastItem.wbs_code || lastItem.serial_number || '';
+      if (lastCode.includes('.')) {
+        const parts = lastCode.split('.');
+        const lastMajor = parseInt(parts[0], 10) || 1;
+        const lastMinor = parseInt(parts[1], 10) || quotationItems.length;
+        nextWBS = `${lastMajor}.${lastMinor + 1}`;
+      } else {
+        nextWBS = `1.${quotationItems.length + 1}`;
+      }
+    } else {
+      nextWBS = '1.1';
+    }
+
+    const newItem: QuotationItem = {
+      id: `item_${Date.now()}`,
+      is_section_header: false,
+      serial_number: nextWBS,
+      wbs_code: nextWBS,
+      item_name: '',
+      item_id: '',
+      quantity: 1,
+      unit: 'pcs',
+      unit_price: 0,
+      total_price: 0,
+      description: '',
+      discount_percentage: 0,
+      purchase_price: 0,
+      markup_amount: 0,
+      vat_amount: 0,
+    };
+    setQuotationItems([...quotationItems, newItem]);
+  };
+
+  // Add category / section title header (1, 2, 3...)
+  const addCategoryTitle = () => {
+    const sectionCount = quotationItems.filter(i => i.is_section_header).length;
+    const nextMajor = (sectionCount + 1).toString();
+
+    const newSection: QuotationItem = {
+      id: `section_${Date.now()}`,
+      is_section_header: true,
+      serial_number: nextMajor,
+      wbs_code: nextMajor,
+      item_title: '',
+      item_name: '',
+      item_id: '',
+      quantity: 0,
+      unit: '',
+      unit_price: 0,
+      total_price: 0,
+      description: '',
+      discount_percentage: 0,
+      purchase_price: 0,
+      markup_amount: 0,
+      vat_amount: 0,
+    };
+    setQuotationItems([...quotationItems, newSection]);
+  };
+
+  // Convert row type between Category Header (1, 2, 3...) and Line Item (1.1, 1.2...)
+  const convertRowType = (index: number, toCategory: boolean) => {
+    if (index < 0 || index >= quotationItems.length) return;
+    const updated = [...quotationItems];
+    const target = updated[index];
+    if (toCategory) {
+      updated[index] = {
+        ...target,
+        is_section_header: true,
+        item_title: target.item_title || target.item_name || '',
+        quantity: 0,
+        unit: '',
+        unit_price: 0,
+        total_price: 0,
+        purchase_price: 0,
+        markup_amount: 0,
+        vat_amount: 0,
+      };
+    } else {
+      updated[index] = {
+        ...target,
+        is_section_header: false,
+        item_name: target.item_name || target.item_title || '',
+        quantity: target.quantity > 0 ? target.quantity : 1,
+        unit: target.unit || 'pcs',
+      };
+    }
+    setQuotationItems(recalculateWBS(updated, true));
+  };
+
+  // Explicitly re-sequence all WBS numbers (1 -> 1.1, 1.2 -> 2 -> 2.1, 2.2)
+  const resequenceWBS = () => {
+    setQuotationItems(recalculateWBS(quotationItems, true));
+  };
+
+  // Remove quotation item
+  const removeQuotationItem = (index: number) => {
+    const updatedItems = quotationItems.filter((_, i) => i !== index);
+    setQuotationItems(recalculateWBS(updatedItems));
+  };
+
+  // Update quotation item
+  const updateQuotationItem = (index: number, field: string, value: any) => {
+    console.log('Updating quotation item:', { index, field, value, currentItems: quotationItems });
+    const updatedItems = [...quotationItems];
+    updatedItems[index] = { ...updatedItems[index], [field]: value };
+    
+    // Only recalculate if the value is a number (not a string being typed)
+    // This prevents calculations from running while user is typing decimal numbers
+    const shouldRecalculate = field === 'quantity' || field === 'discount_percentage' || 
+                             (field === 'purchase_price' && typeof value === 'number') ||
+                             (field === 'markup_amount' && typeof value === 'number') ||
+                             (field === 'markup_percentage' && typeof value === 'number');
+    
+    if (shouldRecalculate) {
+      const item = updatedItems[index];
+      
+      // Calculate unit price and markup amount based on the field being changed
+      let unitPrice, markupAmount;
+      
+      if (field === 'purchase_price') {
+        // When purchase price changes, keep markup amount constant and recalculate unit price
+        markupAmount = item.markup_amount || 0;
+        unitPrice = (value || 0) + markupAmount;
+      } else if (field === 'markup_amount') {
+        // When markup amount changes, keep purchase price constant and recalculate unit price
+        markupAmount = value || 0;
+        unitPrice = (item.purchase_price || 0) + markupAmount;
+      } else if (field === 'markup_percentage') {
+        // When markup percentage changes, calculate markup amount and unit price
+        const purchasePrice = field === 'purchase_price' ? (value || 0) : (item.purchase_price || 0);
+        markupAmount = (purchasePrice * (value || 0)) / 100;
+        unitPrice = purchasePrice + markupAmount;
+      } else {
+        // For quantity and discount changes, keep existing values
+        unitPrice = item.unit_price || 0;
+        markupAmount = item.markup_amount || 0;
+      }
+      
+      const basePrice = item.quantity * unitPrice;
+      const discountAmount = (basePrice * (item.discount_percentage || 0)) / 100;
+      const totalPrice = Number((basePrice - discountAmount).toFixed(2));
+      
+      // [2025-01-11] Added - Calculate VAT amount per line item (15% of total price)
+      const vatAmount = Number(((totalPrice * 15) / 100).toFixed(2));
+      
+      // Calculate markup percentage for bidirectional relationship
+      const purchasePrice = field === 'purchase_price' ? (value || 0) : (item.purchase_price || 0);
+      const markupPercentage = purchasePrice > 0 ? (markupAmount / purchasePrice) * 100 : 0;
+      
+      updatedItems[index] = {
+        ...item,
+        unit_price: Number(unitPrice.toFixed(2)),
+        markup_amount: Number(markupAmount.toFixed(2)),
+        markup_percentage: Number(markupPercentage.toFixed(2)),
+        total_price: totalPrice,
+        // [2025-01-11] Added - Include vat_amount in item updates
+        vat_amount: vatAmount,
+      };
+    }
+    
+    // If markup_amount was changed, update global markup percentage to show weighted average
+    if (field === 'markup_amount') {
+      const weightedAverageMarkup = calculateWeightedAverageMarkup(updatedItems);
+      setFormData(prev => ({ ...prev, markup_percentage: weightedAverageMarkup }));
+    }
+    
+    console.log('Updated items:', updatedItems);
+    setQuotationItems(updatedItems);
+    
+    // Note: updateSubtotal() is now handled automatically by useEffect when quotationItems changes
+  };
+
+  // Auto-create customer if doesn't exist
+  const handleCustomerSelection = async (customerName: string) => {
+    console.log('Customer selection triggered:', { customerName });
+    
+    // Extract English name from the format "English Name | Arabic Name" or just "English Name"
+    const englishName = customerName.includes(' | ') ? customerName.split(' | ')[0] : customerName;
+    
+    // Check if customer exists
+    const existingCustomer = customers?.find(c => c.customer_company_name.toLowerCase() === englishName.toLowerCase());
+    
+    console.log('Existing customer search result:', existingCustomer);
+    
+    if (existingCustomer) {
+      // Customer exists, use it
+      console.log('Using existing customer:', existingCustomer);
+      setFormData(prev => ({
+        ...prev,
+        customer_name: englishName,
+        customer_id: existingCustomer._id
+      }));
+    } else {
+      // Customer doesn't exist, create it
+      try {
+        console.log('Creating new customer in database:', {
+          customer_company_name: englishName,
+          organization_id: selectedOrganization
+        });
+        
+        const newCustomerId = await createCustomer({
+          customer_company_name: englishName,
+          customer_type: 'business',
+          organization_id: selectedOrganization as any,
+          email: '',
+          phone: '',
+          address: '',
+          contact_person: '',
+        });
+        
+        console.log('Customer created successfully with ID:', newCustomerId);
+        
+        // Update form data with the new customer
+        setFormData(prev => ({
+          ...prev,
+          customer_name: englishName,
+          customer_id: newCustomerId
+        }));
+        
+        // Force refresh of customer dropdown by incrementing the key
+        setCustomerRefreshKey(prev => prev + 1);
+        
+        toast.success(`Customer "${englishName}" created successfully and saved to database`);
+      } catch (error) {
+        console.error('Error creating customer:', error);
+        toast.error(`Error creating customer: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+    }
+  };
+
+  // Handle customer selection from dropdown
+  const handleCustomerChange = (customerName: string) => {
+    console.log('Customer change triggered:', { customerName, customers: customers?.map(c => c.customer_company_name) });
+    
+    // Extract English name from the format "English Name | Arabic Name" or just "English Name"
+    const englishName = customerName.includes(' | ') ? customerName.split(' | ')[0] : customerName;
+    
+    const existingCustomer = customers?.find(c => c.customer_company_name === englishName);
+    
+    console.log('Found existing customer:', existingCustomer);
+    
+    setFormData(prev => ({
+      ...prev,
+      customer_name: englishName,
+      customer_id: existingCustomer?._id || ''
+    }));
+    
+    console.log('Updated form data with customer:', {
+      customer_name: englishName,
+      customer_id: existingCustomer?._id || ''
+    });
+  };
+
+  // Auto-create inventory item if doesn't exist
+  const handleInventoryItemSelection = async (itemName: string) => {
+    console.log('Inventory item selection triggered:', { itemName });
+    
+    // Extract English name from the format "English Name | Arabic Name" or just "English Name"
+    const englishName = itemName.includes(' | ') ? itemName.split(' | ')[0] : itemName;
+    
+    // Check if item exists
+    const existingItem = inventory?.find(i => i.name.toLowerCase() === englishName.toLowerCase());
+    
+    console.log('Existing item search result:', existingItem);
+    
+    if (existingItem) {
+      // Item exists, use it
+      console.log('Using existing item:', existingItem);
+      return existingItem;
+    } else {
+      // Item doesn't exist, create it
+      try {
+        // Helper function to generate Arabic name (simple transliteration)
+        const generateArabicName = (englishName: string): string => {
+          // Simple English to Arabic transliteration mapping
+          const transliterationMap: { [key: string]: string } = {
+            'a': 'ا', 'b': 'ب', 'c': 'ك', 'd': 'د', 'e': 'ي', 'f': 'ف', 'g': 'ج', 'h': 'ه',
+            'i': 'ي', 'j': 'ج', 'k': 'ك', 'l': 'ل', 'm': 'م', 'n': 'ن', 'o': 'و', 'p': 'ب',
+            'q': 'ق', 'r': 'ر', 's': 'س', 't': 'ت', 'u': 'و', 'v': 'ف', 'w': 'و', 'x': 'كس',
+            'y': 'ي', 'z': 'ز', ' ': ' '
+          };
+          
+          return englishName.toLowerCase().split('').map(char => 
+            transliterationMap[char] || char
+          ).join('');
+        };
+
+        const arabicName = generateArabicName(englishName);
+        
+        console.log('Creating new inventory item in database:', {
+          name: englishName,
+          name_arabic: arabicName,
+          organization_id: selectedOrganization
+        });
+        
+        const newItemId = await createInventory({
+          name: englishName,
+          name_arabic: arabicName,
+          sku: `SKU-${Date.now()}`,
+          category: 'General Item',
+          unit: 'pcs', // Default unit for new items - user can change
+          cost_price: 0,
+          selling_price: 0,
+          quantity: 0,
+          organization_id: selectedOrganization as any,
+        });
+        
+        console.log('Inventory item created successfully with ID:', newItemId);
+        
+        // Force refresh of inventory dropdown
+        setInventoryRefreshKey(prev => prev + 1);
+        
+        toast.success(`Inventory item "${englishName}" created successfully and saved to database`);
+        
+        // Return the new item data
+        return {
+          _id: newItemId,
+          name: englishName,
+          name_arabic: arabicName,
+          unit: 'pcs',
+          cost_price: 0,
+          selling_price: 0,
+        };
+      } catch (error) {
+        console.error('Error creating inventory item:', error);
+        toast.error(`Error creating inventory item: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+      }
+    }
+  };
+
+  // Handle item selection from dropdown
+  const handleItemChange = (itemName: string, itemIndex: number) => {
+    console.log('Item change:', { itemName, itemIndex, inventory: inventory?.map(i => i.name) });
+    
+    // Extract English name from the format "English Name | Arabic Name" or just "English Name"
+    const englishName = itemName.includes(' | ') ? itemName.split(' | ')[0] : itemName;
+    
+    const existingItem = inventory?.find(i => i.name === englishName);
+    console.log('Existing item found:', existingItem);
+    
+    if (existingItem) {
+      console.log('Updating item with existing data:', {
+        item_name: englishName,
+        item_id: existingItem._id,
+        purchase_price: existingItem.cost_price || 0,
+        unit_price: (existingItem.cost_price || 0) + 0 // Will be calculated as purchase_price + markup_amount
+      });
+      
+      // Update all fields at once to ensure consistency
+      const updatedItems = [...quotationItems];
+      const purchasePrice = existingItem.cost_price || 0;
+      const markupAmount = 0; // Start with 0, user will input markup
+      const unitPrice = purchasePrice + markupAmount; // Calculate unit price
+      
+      updatedItems[itemIndex] = {
+        ...updatedItems[itemIndex],
+        item_name: englishName,
+        item_id: existingItem._id,
+        unit: existingItem.unit || '', // Set unit from inventory, empty if not set
+        purchase_price: purchasePrice, // From inventory cost_price
+        markup_amount: markupAmount, // User input, start with 0
+        unit_price: unitPrice, // Calculated as purchase_price + markup_amount
+        total_price: unitPrice * updatedItems[itemIndex].quantity,
+      };
+      setQuotationItems(updatedItems);
+      // Note: updateSubtotal() is now handled automatically by useEffect when quotationItems changes
+    } else {
+      console.log('Item not found, just updating name');
+      // If item doesn't exist, just update the name for now
+      updateQuotationItem(itemIndex, 'item_name', englishName);
+    }
+  };
+
+  // Generate quotation number
+  const generateQuotationNumber = () => {
+    const date = new Date();
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `QT-${year}${month}${day}-${random}`;
+  };
+
+  // Reset form
+  const resetForm = () => {
+    setFormData({
+      quotation_number: '',
+      customer_id: '',
+      customer_name: '',
+      reference_number: '', // Renamed from subject
+      description: '',
+      status: 'draft',
+      valid_until: '',
+      terms_conditions: '',
+      notes: '',
+      subtotal: 0,
+      tax_rate: orgDetails?.vat_rate ? Math.round(parseFloat(orgDetails.vat_rate)) : 15,
+      tax_amount: 0,
+      total_amount: 0,
+      currency: orgDetails?.currency || 'SAR',
+      // New fields for enhanced quotation management
+      salesperson: '',
+      markup_percentage: 0,
+      // Reset lead fields
+      lead_id: undefined,
+      lead_number: undefined,
+    });
+    setQuotationItems([]);
+    setSelectedQuotationForItems(null);
+  };
+
+  // Import items from CSV/Excel file
+  const handleImportItems = async (file: File) => {
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim()); // Remove empty lines
+      
+      if (lines.length < 2) {
+        toast.error('File must contain at least a header row and one data row');
+        return;
+      }
+      
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      console.log('CSV Headers:', headers);
+      
+      const importedItems: any[] = [];
+      let validRows = 0;
+      let invalidRows = 0;
+      
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        
+        const values = lines[i].split(',').map(v => v.trim().replace(/^["']|["']$/g, '')); // Remove quotes
+        const item: any = {};
+        
+        // Map headers to item properties
+        console.log('Processing row values:', values);
+        headers.forEach((header, index) => {
+          const value = values[index] || '';
+          console.log(`Header: "${header}" -> Value: "${value}"`);
+          switch (header) {
+            case 'item_name':
+            case 'name':
+            case 'product':
+            case 'product_name':
+            case 'item name':
+              item.inventory_name = value;
+              break;
+            case 'quantity':
+            case 'qty':
+            case 'qty.':
+              item.quantity = parseFloat(value) || 0;
+              break;
+            case 'unit_price':
+            case 'price':
+            case 'unit price':
+            case 'rate':
+              item.unit_price = parseFloat(value) || 0;
+              break;
+            case 'discount_percentage':
+            case 'discount':
+            case 'discount %':
+            case 'discount_percent':
+              item.discount_percentage = parseFloat(value) || 0;
+              break;
+            case 'purchase_price':
+            case 'cost':
+            case 'cost_price':
+            case 'purchase price':
+              item.purchase_price = parseFloat(value) || 0;
+              break;
+            case 'markup_amount':
+            case 'markup amount':
+            case 'markup':
+            case 'profit_amount':
+            case 'profit amount':
+              item.markup_amount = parseFloat(value) || 0;
+              break;
+            case 'notes':
+            case 'description':
+            case 'desc':
+              item.notes = value;
+              break;
+          }
+        });
+        
+        // Calculate unit_price if not provided (Purchase Price + Markup Amount)
+        if (!item.unit_price || item.unit_price === 0) {
+          const purchasePrice = item.purchase_price || 0;
+          const markupAmount = item.markup_amount || 0;
+          item.unit_price = purchasePrice + markupAmount;
+        }
+        
+        // Validate required fields
+        console.log('Final item object:', item);
+        const hasRequiredFields = item.inventory_name && 
+                                item.inventory_name.trim() !== '' && 
+                                item.quantity > 0 && 
+                                (item.unit_price > 0 || (item.purchase_price > 0));
+        
+        if (hasRequiredFields) {
+          // Set default values for optional fields
+          item.discount_percentage = item.discount_percentage || 0;
+          item.purchase_price = item.purchase_price || 0;
+          item.notes = item.notes || '';
+          
+          importedItems.push(item);
+          validRows++;
+        } else {
+          invalidRows++;
+          console.warn(`Invalid row ${i + 1}:`, {
+            inventory_name: item.inventory_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            hasRequiredFields
+          });
+        }
+      }
+      
+      console.log(`Import results: ${validRows} valid rows, ${invalidRows} invalid rows`);
+      
+      if (importedItems.length > 0) {
+        // Helper function to generate Arabic name (simple transliteration)
+        const generateArabicName = (englishName: string): string => {
+          // Simple English to Arabic transliteration mapping
+          const transliterationMap: { [key: string]: string } = {
+            'a': 'ا', 'b': 'ب', 'c': 'ك', 'd': 'د', 'e': 'ي', 'f': 'ف', 'g': 'ج', 'h': 'ه',
+            'i': 'ي', 'j': 'ج', 'k': 'ك', 'l': 'ل', 'm': 'م', 'n': 'ن', 'o': 'و', 'p': 'ب',
+            'q': 'ق', 'r': 'ر', 's': 'س', 't': 'ت', 'u': 'و', 'v': 'ف', 'w': 'و', 'x': 'كس',
+            'y': 'ي', 'z': 'ز', ' ': ' '
+          };
+          
+          return englishName.toLowerCase().split('').map(char => 
+            transliterationMap[char] || char
+          ).join('');
+        };
+
+        // Process imported items and create inventory items for new ones
+        const processedItems: QuotationItem[] = [];
+        const newInventoryItems: any[] = [];
+
+        for (const item of importedItems) {
+          // Check if item exists in inventory
+          const existingItem = inventory?.find(i => i.name.toLowerCase() === item.inventory_name.toLowerCase());
+          
+          if (existingItem) {
+            // Item exists, use existing inventory item
+            const basePrice = item.unit_price * item.quantity;
+            const discountAmount = (basePrice * item.discount_percentage) / 100;
+            const totalPrice = basePrice - discountAmount;
+            
+            processedItems.push({
+              id: `imported_${Date.now()}_${processedItems.length}`,
+              item_name: item.inventory_name,
+              item_id: existingItem._id,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              total_price: Number(totalPrice.toFixed(2)),
+              description: item.notes,
+              discount_percentage: item.discount_percentage,
+              purchase_price: item.purchase_price,
+            });
+          } else {
+            // Item doesn't exist, create new inventory item
+            const arabicName = generateArabicName(item.inventory_name);
+            
+            try {
+              const newInventoryId = await createInventory({
+                name: item.inventory_name,
+                name_arabic: arabicName,
+                sku: `SKU-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                category: 'General Item',
+                unit: 'pcs',
+                cost_price: item.purchase_price || 0,
+                selling_price: item.unit_price,
+                quantity: 0,
+                organization_id: selectedOrganization as any,
+              });
+
+              const basePrice = item.unit_price * item.quantity;
+              const discountAmount = (basePrice * item.discount_percentage) / 100;
+              const totalPrice = basePrice - discountAmount;
+              
+              processedItems.push({
+                id: `imported_${Date.now()}_${processedItems.length}`,
+                item_name: item.inventory_name,
+                item_id: newInventoryId,
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                total_price: Number(totalPrice.toFixed(2)),
+                description: item.notes,
+                discount_percentage: item.discount_percentage,
+                purchase_price: item.purchase_price,
+              });
+
+              newInventoryItems.push({
+                name: item.inventory_name,
+                arabicName: arabicName
+              });
+            } catch (error) {
+              console.error('Error creating inventory item:', error);
+              // If inventory creation fails, still add to quotation items but without item_id
+              const basePrice = item.unit_price * item.quantity;
+              const discountAmount = (basePrice * item.discount_percentage) / 100;
+              const totalPrice = basePrice - discountAmount;
+              
+              processedItems.push({
+                id: `imported_${Date.now()}_${processedItems.length}`,
+                item_name: item.inventory_name,
+                item_id: '',
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                total_price: Number(totalPrice.toFixed(2)),
+                description: item.notes,
+                discount_percentage: item.discount_percentage,
+                purchase_price: item.purchase_price,
+              });
+            }
+          }
+        }
+        
+        setQuotationItems([...quotationItems, ...processedItems]);
+        // Note: updateSubtotal() is now handled automatically by useEffect when quotationItems changes
+        
+        // Force refresh of inventory dropdown
+        setInventoryRefreshKey(prev => prev + 1);
+        
+        const message = `Imported ${processedItems.length} items successfully`;
+        if (newInventoryItems.length > 0) {
+          toast.success(`${message} (${newInventoryItems.length} new inventory items created)`);
+        } else if (invalidRows > 0) {
+          toast.success(`${message} (${invalidRows} invalid rows skipped)`);
+        } else {
+          toast.success(message);
+        }
+      } else {
+        toast.error(`No valid items found in the file. Required fields: Item Name, Quantity, Unit Price. Found ${invalidRows} invalid rows.`);
+      }
+    } catch (error) {
+      console.error('Error importing items:', error);
+      toast.error('Failed to import items. Please check the file format. Required columns: Item Name, Quantity, Unit Price');
+    }
+  };
+
+  // Export items to CSV
+  const handleExportItems = async () => {
+    try {
+      if (quotationItems.length === 0) {
+        toast.error('No items to export');
+        return;
+      }
+      
+      // Use simplified headers that match the import logic
+      const headers = ['Item Name', 'Quantity', 'Purchase Price', 'Markup Amount', 'Unit Price (Calculated)', 'Discount %', 'Description'];
+      const csvContent = [
+        headers.join(','),
+        ...quotationItems.map(item => [
+          `"${item.item_name}"`,
+          item.quantity,
+          item.purchase_price || 0,
+          item.markup_amount || 0,
+          item.unit_price,
+          item.discount_percentage || 0,
+          `"${item.description}"`
+        ].join(','))
+      ].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `quotation-items-${formData.quotation_number || 'export'}-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('Items exported successfully');
+    } catch (error) {
+      console.error('Error exporting items:', error);
+      toast.error('Failed to export items');
+    }
+  };
+
+  // Export CSV template for import
+  const handleExportTemplate = async () => {
+    try {
+      const headers = ['Item Name', 'Quantity', 'Purchase Price', 'Markup Amount', 'Unit Price (Auto-calculated)', 'Discount %', 'Description'];
+      const exampleData = [
+        ['Sample Product 1', '2', '80.00', '20.00', '', '10', 'Sample description'],
+        ['Sample Product 2', '1', '40.00', '10.00', '', '0', 'Another sample']
+      ];
+      
+      const csvContent = [
+        headers.join(','),
+        ...exampleData.map(row => row.join(','))
+      ].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'quotation-items-template.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('CSV template downloaded successfully');
+    } catch (error) {
+      console.error('Error exporting template:', error);
+      toast.error('Failed to export template');
+    }
+  };
+
+  // Calculate weighted average markup percentage from individual markup amounts
+  const calculateWeightedAverageMarkup = (items: any[]) => {
+    let totalPurchaseValue = 0;
+    let totalMarkupValue = 0;
+    
+    items.forEach(item => {
+      const purchasePrice = item.purchase_price || 0;
+      const markupAmount = item.markup_amount || 0;
+      const quantity = item.quantity || 1;
+      
+      if (purchasePrice > 0) {
+        totalPurchaseValue += purchasePrice * quantity;
+        totalMarkupValue += markupAmount * quantity;
+      }
+    });
+    
+    if (totalPurchaseValue === 0) return 0;
+    return Number(((totalMarkupValue / totalPurchaseValue) * 100).toFixed(2));
+  };
+
+  // Check if markup is missing and show notification
+  const checkMarkupAndNotify = () => {
+    const itemsWithPurchasePrice = quotationItems.filter(item => (item.purchase_price || 0) > 0);
+    const itemsWithoutMarkup = itemsWithPurchasePrice.filter(item => (item.markup_amount || 0) === 0);
+    
+    if (itemsWithoutMarkup.length > 0) {
+      toast({
+        title: "Markup Reminder",
+        description: `You have ${itemsWithoutMarkup.length} item(s) without markup. Consider adding markup for better profit margins.`,
+        status: "warning",
+        duration: 5000,
+        isClosable: true,
+      });
+    }
+  };
+
+  // Handle markup percentage change and distribute to all items
+  const handleMarkupChange = (markupPercentage: number) => {
+    if (quotationItems.length === 0) return;
+    
+    // Update markup percentage in form data
+    setFormData(prev => ({ ...prev, markup_percentage: markupPercentage }));
+    
+    // Apply markup to purchase prices and calculate markup amounts
+    const updatedItems = quotationItems.map(item => {
+      const basePrice = item.purchase_price || 0;
+      const markupAmount = (basePrice * markupPercentage) / 100;
+      const unitPrice = basePrice + markupAmount;
+      
+      // Recalculate total price based on new unit price
+      const baseTotal = unitPrice * item.quantity;
+      const discountAmount = (baseTotal * (item.discount_percentage || 0)) / 100;
+      const totalPrice = Number((baseTotal - discountAmount).toFixed(2));
+      
+      return {
+        ...item,
+        markup_amount: Number(markupAmount.toFixed(2)),
+        unit_price: Number(unitPrice.toFixed(2)),
+        total_price: totalPrice,
+      };
+    });
+    
+    setQuotationItems(updatedItems);
+    // Note: updateSubtotal() is now handled automatically by useEffect when quotationItems changes
+  };
+
+  // Load organization terms and conditions
+  const organizationTerms = useQuery(
+    api.quotations.getOrganizationTerms,
+    selectedOrganization ? { organization_id: selectedOrganization as any } : 'skip'
+  );
+
+  // Terms & Conditions should be blank by default (each project is distinct).
+  // The user can explicitly click "Terms Wizard" or "Standard Template" or load saved terms.
+  // We keep organizationTerms available without auto-forcing them into blank formData.
+
+
+  // Save terms and conditions to organization (debounced)
+  const saveTermsToOrganization = async (terms: string) => {
+    if (!selectedOrganization || !terms.trim()) return;
+    
+    // Clear any existing timeout
+    if ((window as any).termsSaveTimeout) {
+      clearTimeout((window as any).termsSaveTimeout);
+    }
+    
+    // Set a new timeout to save after 2 seconds of no typing
+    (window as any).termsSaveTimeout = setTimeout(async () => {
+      try {
+        await saveOrganizationTerms({
+          organization_id: selectedOrganization as any,
+          terms_conditions: terms.trim(),
+        });
+        console.log('Terms & Conditions saved to organization settings');
+      } catch (error) {
+        console.error('Error saving terms:', error);
+        toast.error('Failed to save Terms & Conditions');
+      }
+    }, 2000);
+  };
+
+  // Simple Print Function - Following Delivery Note Pattern
+  const generateSimplePrint = async (quotationId: string, templateId?: string | null) => {
+    console.log('generateSimplePrint called with:', { quotationId, templateId });
+
+    // Use organizationDetails directly like delivery notes do
+    if (!organizationDetails) {
+      console.error('Organization details not available for PDF generation');
+      toast.error('Organization details not loaded. Please try again.');
+      return;
+    }
+
+    try {
+      const quotation = quotations.find(q => q._id === quotationId);
+      if (!quotation) {
+        toast.error('Quotation not found');
+        return;
+      }
+
+      const quotationItems = await client.action(api.quotations.getQuotationItemsForPDF, { quotation_id: quotationId });
+      if (!quotationItems) {
+        toast.error('Failed to load quotation items');
+        return;
+      }
+
+      // Get logo URL if available (same as delivery notes)
+      let logoUrl = '';
+      if (organizationDetails?.logo_url) {
+        try {
+          logoUrl = await client.action(api.fileUpload.getFileUrl, {
+            fileId: organizationDetails.logo_url
+          });
+        } catch (error) {
+          console.warn('Failed to get logo URL:', error);
+          logoUrl = ''; // Clear logo if URL retrieval fails
+        }
+      }
+
+      // Get customer details
+      const customer = customers?.find(c => c._id === quotation.customer_id);
+      const customerName = customer?.customer_company_name || quotation.customer_name || 'N/A';
+      const customerNameArabic = customer?.customer_company_name_arabic || '';
+
+      // Get template data if templateId is provided
+      let templateData = null;
+      if (templateId) {
+        console.log('Fetching template data for templateId:', templateId);
+        try {
+          const templateResult = await client.query(api.printTemplates.getTemplate, { template_id: templateId });
+          if (templateResult) {
+            templateData = templateResult;
+            console.log('Using template for PDF generation:', templateResult.name, templateResult.template_type);
+          } else {
+            console.warn('Template not found for templateId:', templateId);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch template data:', error);
+        }
+      } else {
+        console.log('No templateId provided, using default PDF generation');
+      }
+
+
+      // Prepare data for PDF generation (same structure as delivery note)
+      const pdfData = {
+        _id: quotation._id,
+        quotation_number: quotation.quotation_number,
+        customer_id: quotation.customer_id,
+        customer_name: customerName,
+        customer_name_arabic: customerNameArabic,
+        date: quotation.date || new Date().toISOString(),
+        valid_until: quotation.valid_until,
+        currency: quotation.currency || 'SAR',
+        tax_rate: quotation.tax_rate || 15,
+        terms_conditions: quotation.terms_conditions,
+        notes: quotation.notes,
+        items: quotationItems.map(item => ({
+          wbs_code: item.wbs_code,
+          item_title: item.item_title,
+          is_section_header: Boolean(item.is_section_header),
+          inventory_name: item.inventory_name || item.item_name || item.description || 'N/A',
+          inventory_name_arabic: item.inventory_name_arabic || '',
+          description: item.description || item.inventory_name || item.item_name || 'N/A',
+          quantity: item.quantity || 0,
+          unit: item.unit || 'pcs', // [2025-01-11] Added - Include unit field for PDF generation
+          unit_price: item.unit_price || item.rate || 0,
+          rate: item.rate || item.unit_price || 0,
+          total_price: item.total_price || item.amount || 0,
+          amount: item.amount || item.total_price || 0,
+          vat_percentage: item.vat_percentage || 15,
+          vat_amount: item.vat_amount || 0,
+          discount_percentage: item.discount_percentage || 0
+        }))
+      };
+
+      // Prepare organization data (same structure as delivery note)
+      const orgDataForPDF = {
+        name: organizationDetails?.name || 'Organization Name',
+        name_arabic: organizationDetails?.name_arabic || '',
+        address: organizationDetails?.address || '',
+        address_arabic: organizationDetails?.address_arabic || '',
+        vat_number: organizationDetails?.vat_number || '',
+        vat_number_arabic: organizationDetails?.vat_number_arabic || '',
+        cr_number: organizationDetails?.cr_number || '',
+        cr_number_arabic: organizationDetails?.cr_number_arabic || '',
+        email: organizationDetails?.email || '',
+        phone: organizationDetails?.phone || '',
+        website: organizationDetails?.website || '',
+        logo_url: logoUrl,
+        header_config: organizationDetails?.header_display_config || organizationDetails?.header_config || {
+          logo: true,
+          name: true,
+          name_arabic: true,
+          address: true,
+          address_arabic: true,
+          vat_number: true,
+          vat_number_arabic: true,
+          cr_number: true,
+          cr_number_arabic: true,
+          email: true,
+          phone: true,
+          website: true
+        },
+        footer_config: organizationDetails?.footer_display_config || organizationDetails?.footer_config || {
+          logo: true,
+          name: true,
+          name_arabic: true,
+          email: true,
+          phone: true,
+          address: true,
+          address_arabic: true,
+          website: true,
+          vat_number: true,
+          vat_number_arabic: true,
+          cr_number: true,
+          cr_number_arabic: true,
+          industry: true
+        }
+      };
+
+      // Call the PDF generator function (EXACT SAME as delivery note)
+      const result = await client.action(api.pdfGenerator.generateArabicPDF, {
+        quotationData: pdfData,
+        orgData: orgDataForPDF,
+        action: "print",  // Only difference from download is the action
+        templateData: templateData
+      });
+
+      if (result.success && result.htmlContent) {
+        // Create a new window for printing with proper URL to avoid about:blank
+        const printWindow = window.open('about:blank', '_blank', 'width=800,height=600');
+        if (printWindow) {
+          // Clear any existing content and write our HTML
+          printWindow.document.open();
+          printWindow.document.write(result.htmlContent);
+          printWindow.document.close();
+          printWindow.focus();
+
+          // Wait for content to load and fonts to render
+          setTimeout(() => {
+            printWindow.print();
+            // Don't close immediately to allow user to print manually if needed
+            setTimeout(() => {
+              if (!printWindow.closed) {
+                printWindow.close();
+              }
+            }, 2000);
+          }, 1500); // Increased timeout for better font loading
+        }
+        toast.success('PDF sent to printer');
+      } else {
+        throw new Error(result.error || 'Failed to generate PDF');
+      }
+
+    } catch (error) {
+      console.error('Error generating PDF for print:', error);
+      toast.error('Failed to generate PDF');
+    }
+  };
+
+  // Simple Download Function - Following Delivery Note Pattern
+  const generateSimpleDownload = async (quotationId: string, templateId?: string | null) => {
+    console.log('generateSimpleDownload called with:', { quotationId, templateId });
+
+    // Use organizationDetails directly like delivery notes do
+    if (!organizationDetails) {
+      console.error('Organization details not available for PDF generation');
+      toast.error('Organization details not loaded. Please try again.');
+      return;
+    }
+
+    try {
+      const quotation = quotations.find(q => q._id === quotationId);
+      if (!quotation) {
+        toast.error('Quotation not found');
+        return;
+      }
+
+      const quotationItems = await client.action(api.quotations.getQuotationItemsForPDF, { quotation_id: quotationId });
+      if (!quotationItems) {
+        toast.error('Failed to load quotation items');
+        return;
+      }
+
+      // Get logo URL if available (same as delivery notes)
+      let logoUrl = '';
+      if (organizationDetails?.logo_url) {
+        try {
+          logoUrl = await client.action(api.fileUpload.getFileUrl, {
+            fileId: organizationDetails.logo_url
+          });
+        } catch (error) {
+          console.warn('Failed to get logo URL:', error);
+          logoUrl = ''; // Clear logo if URL retrieval fails
+        }
+      }
+
+      // Get customer details
+      const customer = customers?.find(c => c._id === quotation.customer_id);
+      const customerName = customer?.customer_company_name || quotation.customer_name || 'N/A';
+      const customerNameArabic = customer?.customer_company_name_arabic || '';
+
+      // Get template data if templateId is provided
+      let templateData = null;
+      if (templateId) {
+        console.log('Fetching template data for templateId:', templateId);
+        try {
+          const templateResult = await client.query(api.printTemplates.getTemplate, { template_id: templateId });
+          if (templateResult) {
+            templateData = templateResult;
+            console.log('Using template for PDF generation:', templateResult.name, templateResult.template_type);
+          } else {
+            console.warn('Template not found for templateId:', templateId);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch template data:', error);
+        }
+      } else {
+        console.log('No templateId provided, using default PDF generation');
+      }
+
+      // Prepare data for PDF generation (same structure as delivery note)
+      const pdfData = {
+        _id: quotation._id,
+        quotation_number: quotation.quotation_number,
+        customer_id: quotation.customer_id,
+        customer_name: customerName,
+        customer_name_arabic: customerNameArabic,
+        date: quotation.date || new Date().toISOString(),
+        valid_until: quotation.valid_until,
+        currency: quotation.currency || 'SAR',
+        tax_rate: quotation.tax_rate || 15,
+        terms_conditions: quotation.terms_conditions,
+        notes: quotation.notes,
+        items: quotationItems.map(item => ({
+          wbs_code: item.wbs_code,
+          item_title: item.item_title,
+          is_section_header: Boolean(item.is_section_header),
+          inventory_name: item.inventory_name || item.item_name || item.description || 'N/A',
+          inventory_name_arabic: item.inventory_name_arabic || '',
+          description: item.description || item.inventory_name || item.item_name || 'N/A',
+          quantity: item.quantity || 0,
+          unit: item.unit || 'pcs', // [2025-01-11] Added - Include unit field for PDF generation
+          unit_price: item.unit_price || item.rate || 0,
+          rate: item.rate || item.unit_price || 0,
+          total_price: item.total_price || item.amount || 0,
+          amount: item.amount || item.total_price || 0,
+          vat_percentage: item.vat_percentage || 15,
+          vat_amount: item.vat_amount || 0,
+          discount_percentage: item.discount_percentage || 0
+        }))
+      };
+
+      // Prepare organization data (same structure as delivery note)
+      const orgDataForPDF = {
+        name: organizationDetails?.name || 'Organization Name',
+        name_arabic: organizationDetails?.name_arabic || '',
+        address: organizationDetails?.address || '',
+        address_arabic: organizationDetails?.address_arabic || '',
+        vat_number: organizationDetails?.vat_number || '',
+        vat_number_arabic: organizationDetails?.vat_number_arabic || '',
+        cr_number: organizationDetails?.cr_number || '',
+        cr_number_arabic: organizationDetails?.cr_number_arabic || '',
+        email: organizationDetails?.email || '',
+        phone: organizationDetails?.phone || '',
+        website: organizationDetails?.website || '',
+        logo_url: logoUrl,
+        header_config: organizationDetails?.header_display_config || organizationDetails?.header_config || {
+          logo: true,
+          name: true,
+          name_arabic: true,
+          address: true,
+          address_arabic: true,
+          vat_number: true,
+          vat_number_arabic: true,
+          cr_number: true,
+          cr_number_arabic: true,
+          email: true,
+          phone: true,
+          website: true
+        },
+        footer_config: organizationDetails?.footer_display_config || organizationDetails?.footer_config || {
+          logo: true,
+          name: true,
+          name_arabic: true,
+          email: true,
+          phone: true,
+          address: true,
+          address_arabic: true,
+          website: true,
+          vat_number: true,
+          vat_number_arabic: true,
+          cr_number: true,
+          cr_number_arabic: true,
+          industry: true
+        }
+      };
+
+      // Call the PDF generator function (EXACT SAME as delivery note)
+      const result = await client.action(api.pdfGenerator.generateArabicPDF, {
+        quotationData: pdfData,
+        orgData: orgDataForPDF,
+        action: "print",  // Use "print" to get HTML content
+        templateData: templateData
+      });
+
+      if (result.success && result.htmlContent) {
+        // Convert HTML to PDF and download (same as delivery notes)
+        const { jsPDF } = await import('jspdf');
+        const html2canvas = (await import('html2canvas')).default;
+        
+        // Create a temporary container for the HTML
+        const container = document.createElement('div');
+        container.innerHTML = result.htmlContent;
+        container.style.position = 'absolute';
+        container.style.top = '-10000px';
+        container.style.width = '794px'; // A4 width
+        document.body.appendChild(container);
+        
+        // Wait for fonts and images to load
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Convert HTML to canvas with optimized settings for smaller file size
+        const canvas = await html2canvas(container, {
+          scale: 1.5, // Reduced from 2 to 1.5 for smaller file size while maintaining quality
+          useCORS: true,
+          allowTaint: true,
+          width: 794,
+          height: 1123,
+          backgroundColor: '#ffffff',
+          imageTimeout: 15000,
+          logging: false,
+          letterRendering: true,
+          // Additional optimizations for smaller file size
+          removeContainer: true,
+          foreignObjectRendering: false
+        });
+        
+        // Remove temporary container
+        document.body.removeChild(container);
+        
+        // Create PDF and download with optimized image quality
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        // Use JPEG format with 85% quality for much smaller file size
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        
+        // Download the PDF
+        const fileName = `quotation-${pdfData.quotation_number}-${new Date().toISOString().split('T')[0]}.pdf`;
+        pdf.save(fileName);
+        
+        toast.success('PDF downloaded successfully');
+      } else {
+        throw new Error(result.error || 'Failed to generate PDF');
+      }
+
+    } catch (error) {
+      console.error('Error generating PDF for download:', error);
+      toast.error('Failed to generate PDF');
+    }
+  };
+
+  // PDF Generation - PROPER DOWNLOAD vs PRINT HANDLING
+  const generatePDF = async (quotationId: string, action: 'download' | 'print' = 'download', useNewTemplate: boolean = false, templateId?: string | null) => {
+    console.log('generatePDF called with:', { quotationId, action, useNewTemplate, templateId });
+
+    // For print action, use the simple print function
+    if (action === 'print') {
+      return await generateSimplePrint(quotationId, templateId);
+    }
+
+    // For download action, use proper PDF download (same as delivery notes)
+    return await generateSimpleDownload(quotationId, templateId);
+
+    /* COMMENTED OUT - COMPLEX FALLBACK LOGIC (PRESERVED FOR FUTURE REFERENCE)
+    // For print action, use the simple print function
+    if (action === 'print') {
+      return await generateSimplePrint(quotationId, templateId);
+    }
+
+    // For download action, use the original complex logic
+    // Check if organization details are available
+    if (!orgDetails) {
+      console.error('Organization details not available for PDF generation');
+      toast.error('Organization details not loaded. Please try again.');
+      return;
+    }
+
+    try {
+      const quotation = quotations.find(q => q._id === quotationId);
+      if (!quotation) {
+        toast.error('Quotation not found');
+        return;
+      }
+
+      const quotationItems = await client.action(api.quotations.getQuotationItemsForPDF, { quotation_id: quotationId });
+      if (!quotationItems) {
+        toast.error('Failed to load quotation items');
+        return;
+      }
+
+      // Get logo URL if available
+      let logoUrl = '';
+      if (orgDetails?.logo_url) {
+        try {
+          logoUrl = await getFileUrl({ fileId: orgDetails.logo_url });
+        } catch (error) {
+          console.warn('Failed to get logo URL:', error);
+        }
+      }
+
+      // Get customer details
+      const customer = customers?.find(c => c._id === quotation.customer_id);
+      const customerName = customer?.customer_company_name || quotation.customer_name || 'N/A';
+      const customerNameArabic = customer?.customer_company_name_arabic || '';
+
+      // Get template data if templateId is provided
+      let templateData = null;
+      if (templateId) {
+        console.log('Fetching template data for templateId:', templateId);
+        try {
+          const templateResult = await client.query(api.printTemplates.getTemplate, { template_id: templateId });
+          if (templateResult) {
+            templateData = templateResult;
+            console.log('Using template for PDF generation:', templateResult.name, templateResult.template_type);
+          } else {
+            console.warn('Template not found for templateId:', templateId);
+          }
+        } catch (error) {
+          console.warn('Failed to fetch template data:', error);
+        }
+      } else {
+        console.log('No templateId provided, using default PDF generation');
+      }
+
+      // Prepare data for PDF generation
+      const pdfData = {
+        _id: quotation._id,
+        quotation_number: quotation.quotation_number,
+        customer_id: quotation.customer_id,
+        customer_name: customerName,
+        ...(useNewTemplate && { customer_name_arabic: customerNameArabic }),
+        date: quotation.date || new Date().toISOString(),
+        valid_until: quotation.valid_until,
+        currency: quotation.currency || 'SAR',
+        tax_rate: quotation.tax_rate || 15,
+        terms_conditions: quotation.terms_conditions,
+        notes: quotation.notes,
+        items: quotationItems.map(item => ({
+          inventory_name: item.inventory_name || item.description || 'N/A',
+          ...(useNewTemplate && { inventory_name_arabic: item.inventory_name_arabic || '' }),
+          description: item.description || item.inventory_name || 'N/A',
+          quantity: item.quantity || 0,
+          unit: item.unit || 'pcs', // Include unit field for PDF generation
+          unit_price: item.unit_price || item.rate || 0,
+          rate: item.rate || item.unit_price || 0,
+          total_price: item.total_price || item.amount || 0,
+          amount: item.amount || item.total_price || 0,
+          vat_percentage: item.vat_percentage || 15,
+          vat_amount: item.vat_amount || 0,
+          discount_percentage: item.discount_percentage || 0
+        }))
+      };
+
+      console.log('=== PDF GENERATION DEBUG ===');
+      console.log('Original quotation:', quotation);
+      console.log('Quotation items from API:', quotationItems);
+      console.log('First item details:', quotationItems?.[0]);
+      console.log('First item keys:', quotationItems?.[0] ? Object.keys(quotationItems[0]) : 'No items');
+      console.log('First item values:', quotationItems?.[0] ? Object.values(quotationItems[0]) : 'No items');
+      console.log('Organization details:', orgDetails);
+      console.log('Prepared PDF data:', pdfData);
+      console.log('Customer found:', customer);
+      console.log('Customer name resolved:', customerName);
+      console.log('=== END DEBUG ===');
+
+      // Prepare organization data with proper structure and defaults
+      const orgDataForPDF = {
+        name: orgDetails?.name || 'Organization Name',
+        name_arabic: orgDetails?.name_arabic || '',
+        address: orgDetails?.address || '',
+        address_arabic: orgDetails?.address_arabic || '',
+        vat_number: orgDetails?.vat_number || '',
+        vat_number_arabic: orgDetails?.vat_number_arabic || '',
+        cr_number: orgDetails?.cr_number || '',
+        email: orgDetails?.email || '',
+        phone: orgDetails?.phone || '',
+        website: orgDetails?.website || '',
+        logo_url: logoUrl,
+        header_config: orgDetails?.header_display_config || orgDetails?.header_config || {
+          logo: true,
+          name: true,
+          name_arabic: true,
+          address: true,
+          address_arabic: true,
+          vat_number: true,
+          vat_number_arabic: true,
+          cr_number: true,
+          cr_number_arabic: true,
+          email: true,
+          phone: true,
+          website: true
+        },
+        footer_config: orgDetails?.footer_display_config || orgDetails?.footer_config || {
+          name: true,
+          name_arabic: true,
+          address_arabic: true,
+          email: true,
+          phone: true,
+          website: true
+        }
+      };
+
+      console.log('Organization data for PDF:', orgDataForPDF);
+      console.log('=== TEMPLATE CONFIGURATION DEBUG ===');
+      console.log('orgDetails from useAuth:', orgDetails);
+      console.log('header_display_config from database:', orgDetails?.header_display_config);
+      console.log('footer_display_config from database:', orgDetails?.footer_display_config);
+      console.log('=== END TEMPLATE CONFIG DEBUG ===');
+
+      // Generate PDF using appropriate action based on template selection
+      const result = useNewTemplate
+        ? await generateMultiPagePDFAction({
+            quotationData: pdfData,
+            orgData: orgDataForPDF,
+            action: action,
+            templateData: templateData
+          })
+        : await generateArabicPDFAction({
+            quotationData: pdfData,
+            orgData: orgDataForPDF,
+            action: action,
+            templateData: templateData
+          });
+
+      if (result.success) {
+        // For new template, go directly to client-side generation
+        if (useNewTemplate) {
+          try {
+            const processedItems = quotationItems.map(item => ({
+              name: item.inventory_name || item.item_name || 'N/A',
+              name_arabic: item.inventory_name_arabic || '',
+              quantity: item.quantity || 0,
+              unit: item.unit || 'pcs',
+              unitPrice: item.unit_price || 0,
+              discountPercentage: item.discount_percentage || 0,
+              vatPercentage: 15, // Default VAT
+              vatAmount: (item.unit_price || 0) * (item.quantity || 0) * 0.15,
+              totalPrice: item.total_price || (item.unit_price || 0) * (item.quantity || 0)
+            }));
+            
+            await handleMultiPagePDFGeneration(pdfData, orgDataForPDF, processedItems, action);
+          } catch (clientError) {
+            console.error('Multi-page PDF generation failed:', clientError);
+            toast.error('Failed to generate multi-page PDF');
+          }
+        } else {
+          // For existing template, try client-side PDF generation first for better Arabic support
+          try {
+            const processedItems = quotationItems.map(item => ({
+              name: item.inventory_name || item.item_name || 'N/A',
+              quantity: item.quantity || 0,
+              unit: item.unit || 'pcs',
+              unitPrice: item.unit_price || 0,
+              discountPercentage: item.discount_percentage || 0,
+              vatPercentage: 15, // Default VAT
+              vatAmount: (item.unit_price || 0) * (item.quantity || 0) * 0.15,
+              totalPrice: item.total_price || (item.unit_price || 0) * (item.quantity || 0)
+            }));
+            
+            await handleClientSidePDFGeneration(pdfData, orgDataForPDF, processedItems, action);
+          } catch (clientError) {
+            console.log('Client-side PDF failed, trying HTML method:', clientError);
+            
+            // Fallback to HTML content conversion
+            if (result.shouldConvertToPDF && result.htmlContent) {
+              await handleHTMLToPDFConversion(result.htmlContent, pdfData.quotation_number, action);
+            } else if ('pdfData' in result && (result as any).pdfData) {
+              // Fallback: handle base64 PDF data
+              await handleBase64PDFData((result as any).pdfData as string, pdfData.quotation_number, action);
+            } else {
+              toast.error('No PDF data received');
+            }
+          }
+        }
+      } else {
+        toast.error(result.message || 'PDF generation failed');
+      }
+
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Failed to generate PDF');
+    }
+    */
+  };
+
+  /* COMMENTED OUT - COMPLEX HELPER FUNCTIONS (PRESERVED FOR FUTURE REFERENCE)
+  // Helper function to generate PDF using new multi-page template
+  const handleMultiPagePDFGeneration = async (
+    quotationData: any,
+    orgData: any,
+    items: any[],
+    action: 'download' | 'print'
+  ) => {
+    try {
+      console.log('=== MULTI-PAGE PDF GENERATION DEBUG ===');
+      console.log('Arabic customer name from database:', quotationData.customer_name_arabic);
+      console.log('Items with Arabic names:', items.map(item => ({ name: item.name, name_arabic: item.name_arabic })));
+      
+      // Calculate financials
+      const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const totalVat = items.reduce((sum, item) => sum + item.vatAmount, 0);
+      const grandTotal = subtotal + totalVat;
+
+      const pdfData: MultiPagePDFData = {
+        quotation: {
+          quotation_number: quotationData.quotation_number,
+          customer_name: quotationData.customer_name,
+          customer_name_arabic: quotationData.customer_name_arabic,
+          date: quotationData.date,
+          currency: quotationData.currency,
+          tax_rate: quotationData.tax_rate || 15,
+          terms_conditions: quotationData.terms_conditions,
+          notes: quotationData.notes
+        },
+        organization: {
+          name: orgData.name,
+          name_arabic: orgData.name_arabic,
+          address: orgData.address,
+          address_arabic: orgData.address_arabic,
+          email: orgData.email,
+          phone: orgData.phone,
+          vat_number: orgData.vat_number,
+          vat_number_arabic: orgData.vat_number_arabic,
+          cr_number: orgData.cr_number,
+          logo_url: orgData.logo_url,
+          header_display_config: orgDetails?.header_display_config,
+          footer_display_config: orgDetails?.footer_display_config
+        },
+        items: items,
+        financials: {
+          subtotal,
+          totalVat,
+          grandTotal
+        }
+      };
+
+      console.log(`Generating multi-page PDF with action: ${action}`);
+      const renderer = new MultiPagePDFGenerator(pdfData);
+      await renderer.generatePDF(action);
+      
+      if (action === 'print') {
+        toast.success('Multi-page PDF opened for printing with Arabic support. If print dialog doesn\'t appear, check popup blocker settings.');
+      } else {
+        toast.success('Multi-page PDF downloaded successfully with Arabic support');
+      }
+    } catch (error) {
+      console.error('Multi-page PDF generation failed:', error);
+      throw error;
+    }
+  };
+
+  // Helper function to generate PDF using client-side rendering with Arabic support
+  const handleClientSidePDFGeneration = async (
+    quotationData: any,
+    orgData: any,
+    items: any[],
+    action: 'download' | 'print'
+  ) => {
+    try {
+      console.log('=== ARABIC TEXT DEBUG ===');
+      console.log('Arabic company name from DB:', orgData.name_arabic);
+      console.log('Arabic address from DB:', orgData.address_arabic);
+      console.log('Arabic VAT number from DB:', orgData.vat_number_arabic);
+      console.log('Checking if Arabic text is properly encoded...');
+      
+      // Check if the Arabic text contains actual Arabic characters
+      const hasArabicChars = (text: string) => {
+        if (!text) return false;
+        return /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(text);
+      };
+      
+      console.log('Company name contains Arabic chars:', hasArabicChars(orgData.name_arabic));
+      console.log('Address contains Arabic chars:', hasArabicChars(orgData.address_arabic));
+      console.log('=== END ARABIC DEBUG ===');
+
+      // Calculate financials
+      const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+      const totalVat = items.reduce((sum, item) => sum + item.vatAmount, 0);
+      const grandTotal = subtotal + totalVat;
+
+      const pdfData: ArabicPDFData = {
+        quotation: {
+          quotation_number: quotationData.quotation_number,
+          customer_name: quotationData.customer_name,
+
+          date: quotationData.date,
+          currency: quotationData.currency,
+          tax_rate: quotationData.tax_rate || 15,
+          terms_conditions: quotationData.terms_conditions,
+          notes: quotationData.notes
+        },
+        organization: {
+          name: orgData.name,
+          name_arabic: orgData.name_arabic,
+          address: orgData.address,
+          address_arabic: orgData.address_arabic,
+          email: orgData.email,
+          phone: orgData.phone,
+          vat_number: orgData.vat_number,
+          vat_number_arabic: orgData.vat_number_arabic,
+          cr_number: orgData.cr_number,
+          logo_url: orgData.logo_url,
+          header_display_config: orgDetails?.header_display_config,
+          footer_display_config: orgDetails?.footer_display_config
+        },
+        items: items,
+        financials: {
+          subtotal,
+          totalVat,
+          grandTotal
+        }
+      };
+
+      console.log(`Generating PDF with action: ${action}`);
+      const renderer = new ArabicPDFRenderer(pdfData);
+      await renderer.generatePDF(action);
+      
+      if (action === 'print') {
+        toast.success('PDF opened for printing with Arabic support. If print dialog doesn\'t appear, check popup blocker settings.');
+      } else {
+        toast.success('PDF downloaded successfully with Arabic support');
+      }
+    } catch (error) {
+      console.error('Client-side PDF generation failed:', error);
+      throw error;
+    }
+  };
+
+  // Helper function to convert HTML to PDF using browser APIs
+  const handleHTMLToPDFConversion = async (htmlContent: string, quotationNumber: string, action: 'download' | 'print') => {
+    try {
+      // Create a new window for PDF conversion
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        toast.error('Popup blocked. Please allow popups and try again.');
+        return;
+      }
+
+      // Write the HTML content to the new window
+      printWindow.document.write(htmlContent);
+      printWindow.document.close();
+
+      // Wait for fonts to load and ensure proper rendering
+      console.log('Waiting for Arabic fonts to load...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      // Check if fonts are loaded
+      if (printWindow.document.fonts) {
+        try {
+          await printWindow.document.fonts.ready;
+          console.log('Fonts loaded successfully');
+        } catch (error) {
+          console.log('Font loading error:', error);
+        }
+      }
+
+      if (action === 'download') {
+        // Try to use the browser's print to PDF functionality
+        printWindow.print();
+        toast.success('PDF generation initiated. Use "Save as PDF" in the print dialog with Arabic support');
+        
+        // Close the window after a delay
+        setTimeout(() => {
+          printWindow.close();
+        }, 2000);
+      } else if (action === 'print') {
+        printWindow.print();
+        toast.success('PDF opened for printing with Arabic support');
+        
+        // Close the window after printing
+        setTimeout(() => {
+          printWindow.close();
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('Error converting HTML to PDF:', error);
+      toast.error('Failed to convert HTML to PDF');
+    }
+  };
+
+  // Helper function to handle base64 PDF data (fallback)
+  const handleBase64PDFData = async (pdfData: string, quotationNumber: string, action: 'download' | 'print') => {
+    try {
+      // Convert base64 to blob
+      const byteCharacters = atob(pdfData);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      
+      const url = URL.createObjectURL(blob);
+      
+      if (action === 'download') {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `quotation-${quotationNumber}-${new Date().toISOString().split('T')[0]}.pdf`;
+        link.click();
+        toast.success('PDF downloaded successfully');
+      } else if (action === 'print') {
+        const newWindow = window.open(url);
+        if (newWindow) {
+          newWindow.onload = () => {
+            newWindow.print();
+          };
+        }
+        toast.success('PDF opened for printing');
+      }
+      
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error handling base64 PDF data:', error);
+      toast.error('Failed to process PDF data');
+    }
+  };
+  */
+
+  return {
+    // State
+    formData,
+    setFormData,
+    quotationItems,
+    setQuotationItems,
+    customerRefreshKey,
+    inventoryRefreshKey,
+    selectedQuotationForItems,
+    setSelectedQuotationForItems,
+    
+    // Data
+    quotations: enhancedQuotations.length > 0 ? enhancedQuotations : (quotations || []), // [2025-01-11] Enhanced - Use quotations with delivery status, fallback to raw quotations
+    customers,
+    inventory,
+    allCustomers,
+    allInventoryItems,
+    
+    // Actions
+    createQuotation,
+    updateQuotation,
+    deleteQuotation,
+    createQuotationItem,
+    createQuotationItemEnhanced,
+    // [2025-01-11] Added - Database mutations for quotation items
+    updateQuotationItemDB,
+    deleteQuotationItemDB,
+    createCustomer,
+    createInventory,
+    
+    // Handlers
+    handleCustomerSelection,
+    handleCustomerChange,
+    handleInventoryItemSelection,
+    handleItemChange,
+    updateQuotationItem,
+    addQuotationItem,
+    addCategoryTitle,
+    convertRowType,
+    resequenceWBS,
+    removeQuotationItem,
+    updateSubtotal,
+    generateQuotationNumber,
+    resetForm,
+    generatePDF,
+    
+    // New enhanced functionality
+    handleImportItems,
+    handleExportItems,
+    handleMarkupChange,
+    calculateWeightedAverageMarkup,
+    checkMarkupAndNotify,
+    saveTermsToOrganization,
+    handleExportTemplate,
+    
+    // Simple print function
+    generateSimplePrint,
+    
+    // Simple download function
+    generateSimpleDownload,
+  };
+};
