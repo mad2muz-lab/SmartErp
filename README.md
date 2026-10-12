@@ -1,249 +1,158 @@
-# Smart ERP — ZATCA-Compliant Invoicing & Management System
+# 🏢 Smart ERP Enterprise System
 
-A complete invoicing system built with React, TypeScript, and Convex, designed to meet ZATCA (Zakat, Tax and Customs Authority) Phase 2 compliance requirements for Saudi Arabia.
+A comprehensive, multi-organization Enterprise Resource Planning (ERP) platform built with **React 18**, **TypeScript**, **Convex Database & Realtime Functions**, and **Vite**. Engineered specifically for Saudi Arabian business operations with full bilingual support (English/Arabic), native Saudi Riyal (`﷼`) typography, ZATCA Phase 2 e-invoicing compliance, automated WhatsApp procurement & expense bots, local OCR receipt scanning, and a multi-tier accounting review engine.
 
-## 🚀 Features
+---
 
-### Core Invoicing
-- **ZATCA Phase 2 Compliance**: Full compliance with Saudi Arabia's electronic invoicing requirements
-- **QR Code Generation**: Automatic TLV-encoded QR codes for invoice validation
-- **PDF Generation**: Professional invoice PDFs with proper Saudi Riyal symbol (﷼)
-- **Multi-step Invoice Creation**: Guided workflow for invoice creation
-- **Invoice Management**: Complete CRUD operations for invoices
+## 🌟 Complete Integrated Modules
 
-### Customer Management
-- **Customer Database**: Comprehensive customer information management
-- **Bank Details**: Full banking information including IBAN, Swift codes, and account details
-- **Address Components**: Detailed address fields for both English and Arabic
-- **CRN Management**: Commercial Registration Number handling
+### 1. 📑 ZATCA Phase 2 Electronic Invoicing
+- **Full Phase 2 Compliance**: UBL 2.1 XML builder, cryptographic hashing, and automated ZATCA onboarding simulation.
+- **TLV & Base64 QR Encoding**: High-speed Tag-Length-Value QR generator meeting all ZATCA specifications.
+- **One-Click Invoice Generation**: Create invoices directly from approved **Quotations** or signed **Delivery Notes**.
+- **Interactive Modals & Viewers**: Live ZATCA XML viewer modal, raw UBL inspector, and audit badge status.
 
-### Organization Management
-- **Multi-organization Support**: Handle multiple organizations with detailed settings
-- **Address Management**: Complete address components for organizations
-- **VAT Configuration**: Proper VAT number management with Arabic support
-- **Logo Management**: Organization logo handling with fallback support
+### 2. 📦 Procurement, RFQ & Sourcing Suite
+- **RFQ Dispatches & Tracking**: Multi-supplier RFQ management with real-time quote detection and comparison.
+- **Purchase Requisitions (PR) & Orders (PO)**: Dual-tier approval workflows, printable multi-page commercial PDFs, and supplier assignment.
+- **Material Receipt Notes (MRN)**: Warehouse intake logging with discrepancy tracking against active Purchase Orders.
+- **WhatsApp QC Inspector Simulator**: In-browser simulation for warehouse quality inspectors to approve or reject shipments via WhatsApp webhooks.
+- **ProcureFlow Mail Viewer Bridge**: Pop-out window communication bridge allowing one-click **Reply**, **Reply All**, and **Forward** dispatches.
 
-### Authentication & Security
-- **Google OAuth**: Secure authentication with Google
-- **Role-based Access**: Super admin, admin, and user roles
-- **Permission System**: Granular permissions for different operations
-- **Session Management**: Secure session handling with localStorage
+### 3. 📄 Quotations & Delivery Notes Engine
+- **Arabic Typography & Font Loader**: Custom font embedding (`Amiri`, `Tajawal`) for high-fidelity bilingual document rendering.
+- **Commercial PDF Engine**: Clean headers/footers, itemized tax breakdowns, currency in words, and digital signatures.
+- **Contract Terms Wizard**: Multi-clause contract terms and conditions customizer with bilingual presets.
+- **Delivery Note Tracking**: Multi-status fulfillment workflow (Pending, Dispatched, Delivered, Invoiced).
 
-### ZATCA Compliance
-- **Phase 2 Requirements**: Meets all ZATCA Phase 2 specifications
-- **TLV Encoding**: Proper Tag-Length-Value encoding for QR codes
-- **Base64 Encoding**: Correct Base64 encoding for ZATCA compliance
-- **Invoice Validation**: Built-in validation for ZATCA requirements
-- **Compliance Dashboard**: Visual compliance checking and reporting
+### 4. 📈 Smart Profit Sharing & Commercial Models
+- **Real-Time Profit Sharing Matrix**: Dynamic partner contribution splitting with tiered commission structures.
+- **Smart Profit Sharing Dashboard**: Interactive visual KPI cards, gross profit vs. net profit analytics, and partner dividend calculators.
+- **Excel-Style Profit Grid**: Keyboard-navigable inline editing for financial controllers.
+
+### 5. 🏛️ Double-Entry Accounting & Accounting Review Bin
+- **Accounting Review Bin (صندوق المراجعة المحاسبية)**: 
+  - Tier-2 financial audit inbox for operational expenses and reimbursements approved by department managers.
+  - Receipt preview modal with side-by-side VAT inspection and tax number validation.
+  - Dropdown Chart of Accounts selector with live AI category recommendations.
+- **Automated Double-Entry Journal Vouchers (`#JV-EXP-`)**:
+  - Automatically balances Dr Expense Head, Dr Input VAT (`1250`), and Cr Cash/Accounts Payable (`1010`/`2010`).
+- **Full Chart of Accounts & General Ledger**: Multi-level account hierarchy, trial balance, balance sheet, and P&L financial reporting.
+
+### 6. 📱 WhatsApp Expense Bot & Offline OCR Scanner
+- **Local OCR Engine (Tesseract WASM)**: Runs 100% in-browser using compiled WebAssembly and SIMD-LSTM models (`ara.traineddata` + `eng.traineddata`) with zero third-party API exposure.
+- **Smart Receipt Detail Extraction**: Scans vendor name, invoice date, Commercial Registration (CR), VAT number, subtotal, and tax amount.
+- **Multi-Tier Separation of Duties (SoD)**:
+  - Employees upload receipts and choose payment source (Personal Reimbursement vs Company Petty Cash).
+  - Automatically dispatches to Reporting Manager for Tier-1 operational approval.
+  - Automatically routes to the Accounting Review Bin upon approval for Tier-2 posting to the General Ledger.
+- **Continuous Learning Loop**: Learns from accountant head corrections with a persistent training memory table.
+
+### 7. 👥 HR, Leaves & Global Mobilization
+- **HR Employee Hub**: Complete employee master records, Iqama tracking, Saudi labor law contract parameters, and department organization charts.
+- **Leave Request & WhatsApp Approvals**: Sick leaves, annual leaves, and emergency exit requests with automated reporting manager routing.
+- **International Hiring & Mobilization**: Candidate workflow tracker with visa quotas, medical checkups, ticketing, and orientation milestones.
+
+### 8. 🛡️ Corporate Governance & Bilateral Settlements
+- **Project RACI Matrix**: Responsible, Accountable, Consulted, and Informed mapping across multi-company joint ventures.
+- **Bilateral Settlement Terminal**: Reconciles cross-company shared expenses, management fees, and intercompany receivables.
+- **Resource Requisition Terminal**: Tracks personnel and equipment mobilization across internal business units.
+
+### 9. 🏪 Inventory Movements & Vendor POS
+- **Multi-Warehouse Stock Movements**: Real-time bin locations, batch tracking, transfer orders, and stock adjustments.
+- **Offline-First Vendor POS**: Cashier point-of-sale terminal with barcode scanning, instant receipt printing, and local cache sync.
+- **Vendor Onboarding Portal**: Self-service registration for supplier bank details, tax compliance certificates, and product catalogues.
+
+---
 
 ## 🛠️ Technology Stack
 
-- **Frontend**: React 18, TypeScript, Chakra UI
-- **Backend**: Convex (Backend-as-a-Service)
-- **Database**: Convex Database
-- **Authentication**: Google OAuth 2.0
-- **PDF Generation**: HTML to PDF conversion
-- **Build Tool**: Vite
-- **Styling**: Chakra UI with responsive design
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 18, TypeScript, Tailwind CSS, Lucide Icons, Vite |
+| **Backend & DB** | Convex Realtime Database, Server Functions, Mutations, Crons & Webhooks |
+| **OCR & Vision** | Tesseract.js (WASM + SIMD-LSTM, Arabic `ara` & English `eng` traineddata) |
+| **PDF & Documents**| Custom HTML Canvas Engine, KaTeX, jsPDF, Arabic Reshaper |
+| **Standards** | ZATCA Phase 2 E-Invoicing (UBL 2.1, TLV QR), Saudi Labor Law, Double-Entry GL |
 
-## 📁 Project Structure
+---
+
+## 📁 Repository Structure
 
 ```
-src/
-├── components/
-│   ├── invoices/           # Invoice-related components
-│   │   ├── InvoiceForm.tsx
-│   │   ├── InvoiceTable.tsx
-│   │   ├── ZATCAComplianceDashboard.tsx
-│   │   └── steps/          # Multi-step form components
-│   ├── CustomerForm.tsx    # Customer management
-│   └── PermissionGuard.tsx # Access control
-├── screens/
-│   ├── InvoiceManagementScreen.tsx
-│   ├── CustomerListScreen.tsx
-│   └── LoginScreen.tsx
-├── contexts/
-│   └── shared/            # React contexts for state management
-└── utils/
-    └── invoiceCurrencyUtils.ts
-
-convex/
-├── invoiceManagement.ts   # Core invoice operations
-├── zatcaInvoiceTemplate.ts # ZATCA-compliant HTML templates
-├── customers.ts           # Customer management
-├── organizations.ts       # Organization management
-├── auth.ts               # Authentication
-└── schema.ts             # Database schema
+SmartErp/
+├── convex/                          # Convex Realtime Backend & Schema
+│   ├── accounting/                  # Chart of Accounts, Journal Vouchers, GL, Reports
+│   ├── pdf/                         # Server-side PDF generators
+│   ├── companyExpenses.ts           # Expense submission & tracking
+│   ├── deliveryNotes.ts             # Delivery notes mutations & queries
+│   ├── governance.ts                # RACI matrix, settlements & requisitions
+│   ├── http.ts                      # Webhook endpoints (WhatsApp & external services)
+│   ├── inventory.ts                 # Stock levels & movement mutations
+│   ├── invoiceManagement.ts         # ZATCA Phase 2 invoice mutations
+│   ├── leaves.ts                    # HR leave requests & approvals
+│   ├── profitSharing.ts             # Profit sharing calculation engine
+│   ├── quotations.ts                # Quotations & sales orders
+│   ├── schema.ts                    # Central database schema definitions
+│   └── whatsappApprovals.ts         # WhatsApp approval flows & bot memory
+│
+├── public/
+│   ├── fonts/                       # Official Saudi Riyal symbol (﷼) fonts
+│   └── tesseract/                   # Local OCR WebAssembly engine & traineddata
+│
+└── src/
+    ├── components/
+    │   ├── accounting/              # Accounting Review Bin, GL, Journal Vouchers
+    │   ├── deliveryNotes/           # Delivery note creation & templates
+    │   ├── expenseManagement/       # Expense dashboards & tables
+    │   ├── expenses/                # WhatsApp Expense Bot drawer
+    │   ├── governance/              # Governance terminals & RACI matrix
+    │   ├── invoices/                # ZATCA compliance modals & step forms
+    │   ├── procurement/             # RFQs, POs, MRNs, WhatsApp QC simulator
+    │   ├── profitSharing/           # Smart Profit Sharing cards & dashboards
+    │   ├── quotations/              # Quotation wizard & Arabic PDF renderer
+    │   └── pos/                     # Vendor POS terminals
+    │
+    ├── modules/
+    │   └── zatca/                   # ZATCA Phase 2 Core (TLV, UBL, QR generator)
+    │
+    └── screens/                     # Full-page application screens
+        ├── AccountingScreen.tsx
+        ├── CorporateGovernanceScreen.tsx
+        ├── DeliveryNoteListScreen.tsx
+        ├── HRManagementScreen.tsx
+        ├── IntelligentProcessFlowScreen.tsx
+        ├── InventoryListScreen.tsx
+        ├── InvoiceManagementScreen.tsx
+        ├── ProcurementDashboardScreen.tsx
+        ├── ProfitSharingDashboardScreen.tsx
+        ├── QuotationListScreen.tsx
+        └── VendorPosScreen.tsx
 ```
 
-## 🚀 Getting Started
+---
 
-### Prerequisites
-- Node.js 18+
-- npm or yarn
-- Convex account
-- Google OAuth credentials
+## 🚦 Quick Start & Local Development
 
-### Installation
-
-1. **Clone the repository**
+1. **Clone the repository**:
    ```bash
-   git clone <repository-url>
-   cd invoicing-module
+   git clone https://github.com/mad2muz-lab/SmartErp.git
+   cd SmartErp
    ```
 
-2. **Install dependencies**
+2. **Install dependencies**:
    ```bash
    npm install
    ```
 
-3. **Set up the local Convex backend**
-   ```bash
-   npm run convex:dev
-   ```
-   Keep this terminal running. The backend and its data stay on this computer.
-
-4. **Configure the local frontend**
-   In `.env.local`, set:
-   ```
-   VITE_CONVEX_URL=http://127.0.0.1:3210
+3. **Configure Environment Variables**:
+   Create a `.env.local` file with your Convex deployment:
+   ```env
+   VITE_CONVEX_URL="https://your-deployment.convex.cloud"
    ```
 
-5. **Start development server**
+4. **Run the Development Server**:
    ```bash
    npm run dev
    ```
-   The frontend rejects non-local Convex URLs while this local-only configuration is in place.
-
-## 🔧 Configuration
-
-### Google OAuth Setup
-1. Create a Google Cloud Project
-2. Enable Google+ API
-3. Create OAuth 2.0 credentials
-4. Add authorized redirect URIs:
-   - `http://localhost:3000/auth/callback` (development)
-   - `https://yourdomain.com/auth/callback` (production)
-
-### Convex Setup
-1. Create a new Convex project
-2. Deploy the schema and functions
-3. Configure authentication providers
-
-## 📋 ZATCA Compliance Features
-
-### Phase 2 Requirements Met
-- ✅ **Seller Information**: Complete seller details with VAT number
-- ✅ **Buyer Information**: Full buyer details with CRN
-- ✅ **Invoice Details**: All required invoice fields
-- ✅ **Line Items**: Detailed item information with VAT
-- ✅ **QR Code**: TLV-encoded QR code with Base64
-- ✅ **Digital Signature**: Cryptographic stamp support
-- ✅ **Invoice Hash**: SHA-256 hash generation
-- ✅ **Arabic Support**: Bilingual invoice support
-
-### QR Code Structure
-The QR code contains TLV-encoded data:
-- Tag 1: Seller Name
-- Tag 2: VAT Number
-- Tag 3: Timestamp
-- Tag 4: Invoice Total
-- Tag 5: VAT Total
-- Tag 6: Invoice Hash
-- Tag 7: Cryptographic Stamp
-
-## 🎨 UI Features
-
-- **Responsive Design**: Works on desktop, tablet, and mobile
-- **Dark/Light Mode**: Automatic theme switching
-- **Arabic Support**: RTL layout support
-- **Professional Styling**: Clean, modern interface
-- **Accessibility**: WCAG compliant components
-
-## 🔒 Security
-
-- **Authentication**: Google OAuth 2.0
-- **Authorization**: Role-based access control
-- **Data Validation**: Input sanitization and validation
-- **Secure Storage**: Encrypted session management
-- **HTTPS**: Secure communication
-
-## 📊 Database Schema
-
-### Key Tables
-- `invoices`: Invoice records with ZATCA fields
-- `invoice_items`: Line items for invoices
-- `customers`: Customer information with bank details
-- `organizations`: Organization settings and details
-- `user_profiles`: User authentication and roles
-
-## 🚀 Deployment
-
-### Production Deployment
-1. **Build the application**
-   ```bash
-   npm run build
-   ```
-
-2. **Deploy to Convex**
-   ```bash
-   convex deploy --prod
-   ```
-
-3. **Deploy frontend**
-   Deploy the `dist` folder to your hosting provider
-
-### Environment Variables
-- `VITE_CONVEX_URL`: Production Convex URL
-- `VITE_GOOGLE_CLIENT_ID`: Production Google Client ID
-
-## 📝 API Documentation
-
-### Key Functions
-
-#### Invoice Management
-- `createInvoice`: Create new invoice
-- `updateInvoice`: Update existing invoice
-- `deleteInvoice`: Delete invoice
-- `generateZATCAInvoicePDF`: Generate ZATCA-compliant PDF
-
-#### Customer Management
-- `createCustomer`: Create new customer
-- `updateCustomer`: Update customer details
-- `listCustomers`: Get customer list
-- `getCustomer`: Get specific customer
-
-#### ZATCA Compliance
-- `generateZATCAQRCode`: Generate compliant QR code
-- `validateZATCACompliance`: Validate invoice compliance
-- `generateZATCAInvoicePDF`: Generate compliant PDF
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For support and questions:
-- Create an issue in the repository
-- Contact: mad2muz@gmail.com
-
-## 🔄 Version History
-
-- **v1.0.0**: Initial release with ZATCA Phase 2 compliance
-- Complete invoicing system with PDF generation
-- Customer and organization management
-- Google OAuth authentication
-- Multi-step invoice creation workflow
-
----
-
-**Built with ❤️ for ZATCA compliance in Saudi Arabia**
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
