@@ -723,7 +723,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
             {/* Credit Limit */}
             <FormControl>
               <FormLabel fontSize={{ base: 'sm', md: 'md' }} mb={{ base: 2, md: 1 }}>
-                Credit Limit (ر.س)
+                Credit Limit ({'\uE900'})
               </FormLabel>
               <NumberInput
                 value={formData.credit_limit}

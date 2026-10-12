@@ -1,6 +1,6 @@
 {
-  "name": "trading-erp",
-  "description": "A modern, mobile-responsive ERP system built with React Native and React Native Web, designed for trading companies to manage customers, leads, inventory, and quotations efficiently.",
+  "name": "smart-erp",
+  "description": "Smart ERP - ZATCA-Compliant Intelligent Process Flow & Invoicing Web Application",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -14,9 +14,9 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "test": "jest",
     "test:coverage": "jest --coverage",
-    "convex:dev": "convex dev --url https://outstanding-alpaca-392.convex.cloud",
-    "convex:deploy:dev": "convex deploy --url https://outstanding-alpaca-392.convex.cloud",
-    "convex:deploy:prod": "convex deploy --url https://outstanding-alpaca-392.convex.cloud",
+    "convex:dev": "convex dev --typecheck disable",
+    "convex:deploy:local": "convex dev --once --typecheck disable",
+    "seed:local": "node scripts/seedLocalMobilizationData.mjs",
     "expo:start": "expo start",
     "expo:android": "expo start --android",
     "expo:ios": "expo start --ios",
@@ -47,6 +47,7 @@
     "@react-navigation/stack": "^6.3.0",
     "@react-pdf/renderer": "^4.3.0",
     "@types/qrcode": "^1.5.5",
+    "@zxing/browser": "^0.2.1",
     "ajv": "^8.17.1",
     "arabic-persian-reshaper": "^1.0.1",
     "convex": "^1.17.4",
@@ -71,6 +72,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^5.0.2",
+    "jsqr": "^1.4.0",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.263.0",
     "native-base": "^3.4.0",
@@ -97,7 +99,7 @@
     "react-query": "^3.39.0",
     "react-router-dom": "^6.8.0",
     "react-webcam": "^7.2.0",
-    "tesseract.js": "^4.1.4",
+    "tesseract.js": "^7.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {

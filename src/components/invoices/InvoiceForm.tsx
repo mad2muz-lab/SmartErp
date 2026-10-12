@@ -48,6 +48,8 @@ import { api } from '../../../convex/_generated/api';
 import { Id } from '../../../convex/_generated/dataModel';
 import { FiPlus, FiTrash2, FiEdit } from 'react-icons/fi';
 import { useAuth } from '../../contexts/shared/AuthContext';
+import { isConvexOrgId } from '../../utils/accountingUtils';
+import FormattedCurrencyDisplay from '../FormattedCurrencyDisplay';
 // import SaudiRiyalDisplay from '../SaudiRiyalDisplay';
 
 interface InvoiceFormProps {
@@ -116,21 +118,26 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   const { selectedOrganization, organizationDetails, user } = useAuth();
   const toast = useToast();
 
-  // Fetch customers
+  const rawOrgId = typeof selectedOrganization === 'string'
+    ? selectedOrganization
+    : (selectedOrganization?._id || user?.organizationId);
+  const isConvexOrg = isConvexOrgId(rawOrgId);
+
+  // Fetch customers safely
   const customers = useQuery(api.customers.listCustomers, 
-    selectedOrganization ? { organization_id: selectedOrganization as Id<"organizations"> } : "skip"
+    isConvexOrg ? { organization_id: rawOrgId as Id<"organizations"> } : "skip"
   );
 
   // Note: VAT number auto-population is working correctly
 
-  // Fetch inventory items
+  // Fetch inventory items safely
   const inventoryItems = useQuery(api.inventory.listInventory, 
-    selectedOrganization ? { organization_id: selectedOrganization as Id<"organizations"> } : "skip"
+    isConvexOrg ? { organization_id: rawOrgId as Id<"organizations"> } : "skip"
   );
 
   // Get quotation items query (will be called dynamically)
   const getQuotationItems = useQuery(api.quotations.getQuotationItems, 
-    selectedQuotation ? { quotation_id: selectedQuotation as any } : "skip"
+    selectedQuotation && isConvexOrg ? { quotation_id: selectedQuotation as any } : "skip"
   );
 
   // Create/Update invoice mutation using ZATCA-compliant functions
@@ -234,23 +241,27 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
   // Effect to load quotation items when selectedQuotation changes
   React.useEffect(() => {
     if (getQuotationItems && getQuotationItems.length > 0) {
-      // Convert quotation items to invoice item format
-      const convertedItems: InvoiceItem[] = getQuotationItems.map((item, index) => ({
-        item_number: index + 1,
-        description: item.item_name || 'Item',
-        description_arabic: item.item_name_arabic || item.item_name || 'عنصر',
-        quantity: item.quantity,
-        unit: 'pcs', // Default unit for quotation items
-        unit_price: item.unit_price,
-        discount_amount: item.discount_amount || 0,
-        discount_percentage: item.discount_percentage || 0,
-        taxable_amount: item.total_price - (item.discount_amount || 0),
-        vat_rate: 15, // Default VAT rate
-        vat_amount: (item.total_price - (item.discount_amount || 0)) * 0.15,
-        total_amount: (item.total_price - (item.discount_amount || 0)) * 1.15,
-        supply_type: 'standard',
-        source: 'quotation' // Mark as quotation item
-      }));
+      // Convert quotation items to invoice item format (filter out non-billable section headers)
+      const convertedItems: InvoiceItem[] = getQuotationItems
+        .filter((item: any) => !item.is_section_header && (item.quantity > 0 || item.unit_price > 0))
+        .map((item: any, index: number) => ({
+          item_number: index + 1,
+          description: item.wbs_code 
+            ? `[${item.wbs_code}] ${item.item_name || item.item_title || 'Item'}` 
+            : (item.item_name || item.item_title || 'Item'),
+          description_arabic: item.item_name_arabic || item.item_name || 'عنصر',
+          quantity: item.quantity,
+          unit: item.unit || 'pcs',
+          unit_price: item.unit_price,
+          discount_amount: item.discount_amount || 0,
+          discount_percentage: item.discount_percentage || 0,
+          taxable_amount: item.total_price - (item.discount_amount || 0),
+          vat_rate: 15, // Default VAT rate
+          vat_amount: item.vat_amount || ((item.total_price - (item.discount_amount || 0)) * 0.15),
+          total_amount: (item.total_price - (item.discount_amount || 0)) + (item.vat_amount || ((item.total_price - (item.discount_amount || 0)) * 0.15)),
+          supply_type: 'standard',
+          source: 'quotation' // Mark as quotation item
+        }));
 
       // Load quotation items into the form
       setInvoiceItems(convertedItems);
@@ -772,7 +783,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                                 <NumberInputField placeholder="%" />
                               </NumberInput>
                               <Text fontSize="xs" color="gray.500">
-                                {item.discount_amount ? `${item.discount_amount.toFixed(2)} ${organizationDetails?.currency || 'SAR'}` : ''}
+                                {item.discount_amount ? <FormattedCurrencyDisplay amount={item.discount_amount} currency={organizationDetails?.currency || 'SAR'} /> : ''}
                               </Text>
                             </VStack>
                           </Td>
@@ -790,7 +801,7 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                           </Td>
                           <Td fontWeight="medium">
                             <Text color="green.600" fontWeight="bold">
-                              {item.total_amount?.toFixed(2) || '0.00'} SAR
+                              <FormattedCurrencyDisplay amount={item.total_amount || 0} currency={organizationDetails?.currency || 'SAR'} />
                             </Text>
                           </Td>
                           <Td>
@@ -885,26 +896,26 @@ const InvoiceForm: React.FC<InvoiceFormProps> = ({
                   <HStack justify="space-between">
                     <Text>Subtotal:</Text>
                     <Text color="green.600" fontWeight="bold">
-                      {formData.subtotal?.toFixed(2) || '0.00'} SAR
+                      <FormattedCurrencyDisplay amount={formData.subtotal || 0} currency={organizationDetails?.currency || 'SAR'} />
                     </Text>
                   </HStack>
                   <HStack justify="space-between">
                     <Text>Total Discount:</Text>
                     <Text color="red.500">
-                      -{formData.total_discount?.toFixed(2) || '0.00'} SAR
+                      -<FormattedCurrencyDisplay amount={formData.total_discount || 0} currency={organizationDetails?.currency || 'SAR'} />
                     </Text>
                   </HStack>
                   <HStack justify="space-between">
                     <Text>Total VAT:</Text>
                     <Text color="blue.600" fontWeight="bold">
-                      {formData.total_vat?.toFixed(2) || '0.00'} SAR
+                      <FormattedCurrencyDisplay amount={formData.total_vat || 0} currency={organizationDetails?.currency || 'SAR'} />
                     </Text>
                   </HStack>
                   <Divider />
                   <HStack justify="space-between" fontWeight="bold">
                     <Text>Grand Total:</Text>
                     <Text color="green.600" fontSize="lg" fontWeight="bold">
-                      {formData.grand_total?.toFixed(2) || '0.00'} SAR
+                      <FormattedCurrencyDisplay amount={formData.grand_total || 0} currency={organizationDetails?.currency || 'SAR'} />
                     </Text>
                   </HStack>
                 </VStack>

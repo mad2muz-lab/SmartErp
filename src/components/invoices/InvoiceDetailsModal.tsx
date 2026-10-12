@@ -41,7 +41,6 @@ import {
   FiDownload, 
   FiPrinter, 
   FiEdit, 
-  FiDollarSign,
   FiCalendar,
   FiUser,
   FiFileText,
@@ -52,13 +51,16 @@ import {
   FiMapPin,
   FiHash,
   FiPhone,
-  FiMail
+  FiMail,
+  FiCode
 } from 'react-icons/fi';
 import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { Id } from '../../../convex/_generated/dataModel';
 // import SaudiRiyalDisplay from '../SaudiRiyalDisplay';
 import ZATCAInvoiceActions from './ZATCAInvoiceActions';
+import FormattedCurrencyDisplay from '../FormattedCurrencyDisplay';
+import { ZatcaQRView, ZatcaTLVData, buildZatcaUblXml, ZatcaXmlViewerModal, ZatcaInvoicePayload, ZatcaInvoiceReceiptModal } from '../../modules/zatca';
 // import { generateInvoicePDF, printInvoice } from '../../utils/pdfGenerator';
 
 interface InvoiceDetailsModalProps {
@@ -75,11 +77,15 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   const cardBg = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  // Fetch invoice details with items
-  const invoiceDetails = useQuery(
-    api.invoiceManagement.getInvoiceDetails,
+  // Fetch invoice details with items using deployed invoiceQueries:getInvoiceById
+  const invoiceDetailsData = useQuery(
+    (api as any).invoiceQueries.getInvoiceById,
     invoice?._id ? { invoice_id: invoice._id as Id<"invoices"> } : "skip"
   );
+  const invoiceDetails = invoiceDetailsData ? {
+    invoice: invoiceDetailsData.invoice,
+    items: invoiceDetailsData.invoiceItems || []
+  } : null;
 
   // TODO: Replace with actual submission status when function is deployed
   // const submissionStatus = useQuery(
@@ -95,8 +101,8 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   // );
   const rawComplianceData = null; // Temporary fix until function is deployed
 
-  // PDF generation action
-  const generatePDF = useAction(api.invoiceManagement.generateInvoicePDF);
+  // PDF generation action using deployed action
+  const generatePDF = useAction((api as any)['pdf/invoiceGenerator'].generateInvoicePDF);
   
   // Use submission-aware compliance data
   const complianceData = submissionStatus ? {
@@ -121,6 +127,71 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
   const handleRefresh = () => {
     // Force re-render by updating the key
     setRefreshKey(prev => prev + 1);
+  };
+
+  const [isXmlModalOpen, setIsXmlModalOpen] = useState(false);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
+  const [generatedXml, setGeneratedXml] = useState('');
+
+  const handleOpenXmlModal = () => {
+    if (!invoice || !organizationDetails) return;
+
+    const payload: ZatcaInvoicePayload = {
+      uuid: invoice.zatca_submission_uuid || '00000000-0000-4000-8000-000000000000',
+      invoiceNumber: invoice.invoice_number,
+      invoiceType: invoice.invoice_type || 'standard',
+      transactionType: invoice.transaction_type || 'invoice',
+      issueDate: invoice.invoice_date,
+      issueTime: invoice.invoice_time || '12:00:00',
+      currency: invoice.currency || 'SAR',
+      seller: {
+        name: organizationDetails.name,
+        nameArabic: organizationDetails.name_arabic,
+        vatNumber: organizationDetails.vat_number || '310123456789003',
+        address: {
+          streetName: organizationDetails.address || 'King Fahd Road',
+          buildingNumber: '1234',
+          city: 'Riyadh',
+          postalCode: '12345',
+          district: 'Al Olaya',
+          countryCode: 'SA',
+        },
+      },
+      buyer: invoice.customer_name ? {
+        name: invoice.customer_name,
+        nameArabic: invoice.customer_name_arabic,
+        vatNumber: invoice.customer_vat_number || '300000000000003',
+        address: {
+          streetName: invoice.customer_address || 'Customer Street',
+          buildingNumber: '1000',
+          city: 'Riyadh',
+          postalCode: '12345',
+          district: 'District',
+          countryCode: 'SA',
+        },
+      } : undefined,
+      items: (invoiceDetails?.items || []).map((item: any, idx: number) => ({
+        id: (idx + 1).toString(),
+        name: item.description,
+        nameArabic: item.description_arabic,
+        quantity: item.quantity || 1,
+        unitPrice: item.unit_price || 0,
+        vatRate: (item.vat_rate || 15) / 100,
+        vatCategory: 'S',
+        totalExcludingVat: (item.quantity || 1) * (item.unit_price || 0),
+        vatAmount: item.vat_amount || 0,
+        totalWithVat: item.total_amount || 0,
+      })),
+      subtotal: invoice.subtotal || 0,
+      totalDiscount: invoice.total_discount || 0,
+      taxableAmount: (invoice.subtotal || 0) - (invoice.total_discount || 0),
+      vatTotal: invoice.total_vat || 0,
+      grandTotal: invoice.grand_total || 0,
+    };
+
+    const xml = buildZatcaUblXml(payload);
+    setGeneratedXml(xml);
+    setIsXmlModalOpen(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -507,11 +578,11 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
                                 <Text fontSize="xs" color="gray.600">{item.unit}</Text>
                               </VStack>
                             </Td>
-                            <Td><Text color="green.600">{item.unit_price?.toFixed(2) || '0.00'} SAR</Text></Td>
-                            <Td><Text color="red.500">{item.discount_amount?.toFixed(2) || '0.00'} SAR</Text></Td>
+                            <Td><Text color="green.600"><FormattedCurrencyDisplay amount={item.unit_price || 0} currency={invoice.currency || 'SAR'} /></Text></Td>
+                            <Td><Text color="red.500"><FormattedCurrencyDisplay amount={item.discount_amount || 0} currency={invoice.currency || 'SAR'} /></Text></Td>
                             <Td>{(item.vat_rate || 15)}%</Td>
-                            <Td><Text color="blue.600">{item.vat_amount?.toFixed(2) || '0.00'} SAR</Text></Td>
-                            <Td fontWeight="medium"><Text color="green.600" fontWeight="bold">{item.total_amount?.toFixed(2) || '0.00'} SAR</Text></Td>
+                            <Td><Text color="blue.600"><FormattedCurrencyDisplay amount={item.vat_amount || 0} currency={invoice.currency || 'SAR'} /></Text></Td>
+                            <Td fontWeight="medium"><Text color="green.600" fontWeight="bold"><FormattedCurrencyDisplay amount={item.total_amount || 0} currency={invoice.currency || 'SAR'} /></Text></Td>
                           </Tr>
                         ))
                       ) : (
@@ -553,22 +624,22 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
                     <VStack align="stretch" spacing={2}>
                       <HStack justify="space-between">
                         <Text fontSize="sm">Subtotal:</Text>
-                        <Text color="green.600" fontSize="sm">{invoice.subtotal?.toFixed(2) || '0.00'} SAR</Text>
+                        <Text color="green.600" fontSize="sm"><FormattedCurrencyDisplay amount={invoice.subtotal || 0} currency={invoice.currency || 'SAR'} /></Text>
                       </HStack>
                       <HStack justify="space-between">
                         <Text fontSize="sm">Total Discount:</Text>
                         <Text fontSize="sm" color="red.500">
-                          -{invoice.total_discount?.toFixed(2) || '0.00'} SAR
+                          -<FormattedCurrencyDisplay amount={invoice.total_discount || 0} currency={invoice.currency || 'SAR'} />
                         </Text>
                       </HStack>
                       <HStack justify="space-between">
                         <Text fontSize="sm">Total VAT:</Text>
-                        <Text color="blue.600" fontSize="sm">{invoice.total_vat?.toFixed(2) || '0.00'} SAR</Text>
+                        <Text color="blue.600" fontSize="sm"><FormattedCurrencyDisplay amount={invoice.total_vat || 0} currency={invoice.currency || 'SAR'} /></Text>
                       </HStack>
                       <Divider />
                       <HStack justify="space-between" fontWeight="bold">
                         <Text>Grand Total:</Text>
-                        <Text color="blue.500" fontSize="lg" fontWeight="bold">{invoice.grand_total?.toFixed(2) || '0.00'} SAR</Text>
+                        <Text color="blue.500" fontSize="lg" fontWeight="bold"><FormattedCurrencyDisplay amount={invoice.grand_total || 0} currency={invoice.currency || 'SAR'} /></Text>
                       </HStack>
                     </VStack>
                   </Box>
@@ -626,6 +697,31 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
               </Card>
             )}
 
+            {/* Official ZATCA QR Code */}
+            <Card bg={cardBg} borderColor={borderColor}>
+              <CardBody>
+                <HStack mb={3}>
+                  <Icon as={FiShield} color="teal.500" />
+                  <Text fontWeight="bold">Official ZATCA QR Code (رمز الاستجابة السريعة للهيئة)</Text>
+                </HStack>
+                <Box p={3} bg="gray.50" borderRadius="md" textAlign="center">
+                  <ZatcaQRView
+                    tlvData={{
+                      sellerName: organizationDetails?.name || 'Seller',
+                      vatNumber: organizationDetails?.vat_number || '310123456789003',
+                      timestamp: `${invoice.invoice_date}T${invoice.invoice_time || '12:00:00'}Z`,
+                      totalWithVat: invoice.grand_total || 0,
+                      vatTotal: invoice.total_vat || 0,
+                      invoiceHash: invoice.zatca_invoice_hash,
+                      digitalSignature: invoice.zatca_digital_signature,
+                    }}
+                    size={160}
+                    showInspectButton={true}
+                  />
+                </Box>
+              </CardBody>
+            </Card>
+
             {/* Invoice Metadata */}
             <Card bg={cardBg} borderColor={borderColor}>
               <CardBody>
@@ -675,6 +771,22 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
             >
               Print
             </Button>
+            <Button
+              colorScheme="orange"
+              variant="solid"
+              leftIcon={<FiPrinter />}
+              onClick={() => setIsReceiptModalOpen(true)}
+            >
+              ZATCA Receipt (80mm POS)
+            </Button>
+            <Button
+              colorScheme="teal"
+              variant="outline"
+              leftIcon={<FiCode />}
+              onClick={handleOpenXmlModal}
+            >
+              ZATCA XML
+            </Button>
           </HStack>
           
           {/* ZATCA Actions */}
@@ -690,6 +802,45 @@ const InvoiceDetailsModal: React.FC<InvoiceDetailsModalProps> = ({
           </VStack>
         </ModalFooter>
       </ModalContent>
+
+      {/* ZATCA UBL 2.1 XML Viewer & Exporter */}
+      <ZatcaXmlViewerModal
+        isOpen={isXmlModalOpen}
+        onClose={() => setIsXmlModalOpen(false)}
+        xmlContent={generatedXml}
+        invoiceNumber={invoice?.invoice_number || 'invoice'}
+      />
+
+      {/* ZATCA Thermal Receipt Modal (80mm & A4) */}
+      <ZatcaInvoiceReceiptModal
+        isOpen={isReceiptModalOpen}
+        onClose={() => setIsReceiptModalOpen(false)}
+        sellerName={organizationDetails?.name || 'شركة النجاح للتجارة والمقاولات'}
+        sellerVatNumber={organizationDetails?.vat_number || '310860308200003'}
+        sellerCrNumber={organizationDetails?.cr_number}
+        sellerAddress={organizationDetails?.address}
+        sellerPhone={organizationDetails?.phone}
+        invoiceNumber={invoice?.invoice_number || 'INV-2026-00001'}
+        invoiceDate={invoice?.invoice_date || new Date().toISOString()}
+        invoiceTime={invoice?.invoice_time || '12:00:00'}
+        invoiceType={invoice?.invoice_type === 'simplified' ? 'simplified' : 'standard'}
+        customerName={invoice?.customer_name}
+        customerVatNumber={invoice?.customer_vat_number}
+        items={(invoiceDetails?.items || []).map((it: any) => ({
+          name: it.description || it.inventory_name || 'Item',
+          nameArabic: it.description_arabic,
+          qty: it.quantity || 1,
+          unitPrice: it.unit_price || 0,
+          vatRate: it.vat_rate || 15,
+          subtotal: it.total_amount || (it.quantity * it.unit_price) || 0,
+        }))}
+        subtotal={invoice?.subtotal || 0}
+        totalVat={invoice?.total_vat || 0}
+        grandTotal={invoice?.grand_total || 0}
+        currency={invoice?.currency || 'SAR'}
+        invoiceHash={invoice?.zatca_invoice_hash}
+        digitalSignature={invoice?.zatca_digital_signature}
+      />
     </Modal>
   );
 };

@@ -1,4 +1,4 @@
-# ZATCA-Compliant Invoicing Module
+# Smart ERP — ZATCA-Compliant Invoicing & Management System
 
 A complete invoicing system built with React, TypeScript, and Convex, designed to meet ZATCA (Zakat, Tax and Customs Authority) Phase 2 compliance requirements for Saudi Arabia.
 
@@ -97,23 +97,23 @@ convex/
    npm install
    ```
 
-3. **Set up Convex**
+3. **Set up the local Convex backend**
    ```bash
-   npm install -g convex
-   convex dev
+   npm run convex:dev
    ```
+   Keep this terminal running. The backend and its data stay on this computer.
 
-4. **Configure environment variables**
-   Create a `.env` file with:
+4. **Configure the local frontend**
+   In `.env.local`, set:
    ```
-   VITE_CONVEX_URL=your-convex-url
-   VITE_GOOGLE_CLIENT_ID=your-google-client-id
+   VITE_CONVEX_URL=http://127.0.0.1:3210
    ```
 
 5. **Start development server**
    ```bash
    npm run dev
    ```
+   The frontend rejects non-local Convex URLs while this local-only configuration is in place.
 
 ## 🔧 Configuration
 

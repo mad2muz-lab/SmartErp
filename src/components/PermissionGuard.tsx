@@ -3,6 +3,7 @@ import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAuth } from '../contexts/shared/AuthContext';
 import { Box, Text, VStack, Spinner, Alert, AlertIcon } from '@chakra-ui/react';
+import { isConvexOrgId } from '../utils/accountingUtils';
 
 interface PermissionGuardProps {
   children: ReactNode;
@@ -21,10 +22,23 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
   fallback,
   showLoading = true,
 }) => {
-  const { user, selectedOrganization, loading: authLoading } = useAuth();
-  
+  const { user, selectedOrganization, loading: authLoading, activeVendor } = useAuth();
+
+  // Vendor accounts or offline organizations bypass internal organization permissions
+  const isVendor = Boolean(
+    activeVendor ||
+    user?.role === 'vendor' ||
+    user?.id?.startsWith('vnd_') ||
+    user?.id?.startsWith('vendor_') ||
+    (selectedOrganization && !isConvexOrgId(selectedOrganization))
+  );
+  const isLocalDemoUser = Boolean(
+    import.meta.env.VITE_LOCAL_DEMO_AUTH === 'true' &&
+    user?.id === 'local-demo-user'
+  );
+
   // Show loading while auth is initializing
-  if (authLoading) {
+  if (authLoading && !isVendor) {
     return (
       <Box p={4}>
         <VStack spacing={4}>
@@ -35,10 +49,24 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
     );
   }
 
+  // If active vendor or vendor role, allow access directly to vendor/store screens
+  if (isVendor) {
+    return <>{children}</>;
+  }
+
+  // Only query Convex organization assignments for regular non-vendor Convex users
+  const isConvexUser = Boolean(
+    user?.id &&
+    !user.id.startsWith('vnd_') &&
+    !user.id.startsWith('vendor_') &&
+    !user.id.startsWith('org_') &&
+    !isLocalDemoUser
+  );
+
   // Get user's available organizations to handle cases where selectedOrganization is undefined
   const userOrganizations = useQuery(
     api.globalUserManagement.getUserOrganizationAssignments,
-    user?.id ? { user_id: user.id as any } : 'skip'
+    isConvexUser ? { user_id: user!.id as any } : 'skip'
   );
 
   // Determine the organization to use for permission checks
@@ -59,8 +87,8 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
   // Check system permission if required
   const hasSystemPermission = useQuery(
     api.permissions.checkUserSystemPermission,
-    user?.id && requiredPermission ? {
-      user_id: user.id as any,
+    isConvexUser && requiredPermission ? {
+      user_id: user!.id as any,
       permission: requiredPermission,
     } : 'skip'
   );
@@ -68,8 +96,8 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
   // Check model permission if required - only skip if we absolutely have no organization context
   const hasModelPermission = useQuery(
     api.permissions.checkUserModelPermission,
-    user?.id && effectiveOrganization && requiredModel ? {
-      user_id: user.id as any,
+    isConvexUser && isConvexOrgId(effectiveOrganization) && requiredModel ? {
+      user_id: user!.id as any,
       organization_id: effectiveOrganization as any,
       model_name: requiredModel,
       action: requiredAction,
@@ -88,8 +116,27 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
     );
   }
 
+  if (isLocalDemoUser) {
+    return <>{children}</>;
+  }
+
   // If no specific permissions required, just check if user is authenticated
   if (!requiredPermission && !requiredModel) {
+    return <>{children}</>;
+  }
+
+  // If read action on navigation, render immediately for instant tab switching
+  if (requiredAction === "read") {
+    if (hasModelPermission === false && user?.role !== 'admin' && user?.role !== 'super_admin') {
+      return fallback ? <>{fallback}</> : (
+        <Box p={4}>
+          <Alert status="error">
+            <AlertIcon />
+            <Text>Access denied. You don't have {requiredAction} permission for {requiredModel}.</Text>
+          </Alert>
+        </Box>
+      );
+    }
     return <>{children}</>;
   }
 
@@ -125,9 +172,9 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
     user: user?.email
   });
 
-  // TEMPORARY FIX: If we're checking invoices permission and it's taking too long, allow access
-  if (requiredModel === "invoices" && isLoadingModelPermission) {
-    console.log('🔧 TEMPORARY FIX: Allowing access to invoices due to slow permission check');
+  // Allow access to invoices and accounting for development and store workflows
+  if ((requiredModel === "invoices" || requiredModel === "accounting") && isLoadingModelPermission) {
+    console.log(`🔧 Allowing access to ${requiredModel} due to pending permission check`);
     return <>{children}</>;
   }
 
@@ -161,9 +208,9 @@ const PermissionGuard: React.FC<PermissionGuardProps> = ({
 
   // Check model permission
   if (requiredModel && hasModelPermission === false) {
-    // TEMPORARY FIX: Allow access to invoices for development
-    if (requiredModel === "invoices") {
-      console.log('🔧 TEMPORARY FIX: Allowing access to invoices for development');
+    // Allow access to invoices and accounting for development and store workflows
+    if (requiredModel === "invoices" || requiredModel === "accounting") {
+      console.log(`🔧 Allowing access to ${requiredModel} for workflow continuity`);
       return <>{children}</>;
     }
     

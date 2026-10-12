@@ -6,18 +6,19 @@ export default defineSchema({
   organizations: defineTable({
     name: v.string(),
     slug: v.string(),
-    email: v.string(),
-    phone: v.string(),
-    address: v.string(),
+    description: v.optional(v.string()),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    address: v.optional(v.string()),
     website: v.optional(v.string()),
     logo_url: v.optional(v.string()),
-    currency: v.string(),
-    vat_number: v.string(),
-    vat_rate: v.string(),
-    timezone: v.string(),
-    language: v.string(),
-    profit_sharing_enabled: v.boolean(),
-    profit_sharing_percentage: v.string(),
+    currency: v.optional(v.string()),
+    vat_number: v.optional(v.string()),
+    vat_rate: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    language: v.optional(v.string()),
+    profit_sharing_enabled: v.optional(v.boolean()),
+    profit_sharing_percentage: v.optional(v.string()),
     is_active: v.boolean(),
     is_default: v.optional(v.boolean()),
     // New fields for enhanced organization management
@@ -44,6 +45,9 @@ export default defineSchema({
     zip_postal_code_arabic: v.optional(v.string()),
     country: v.optional(v.string()),
     country_arabic: v.optional(v.string()),
+    branch_name: v.optional(v.string()),
+    branch_name_arabic: v.optional(v.string()),
+    zatca_business_category: v.optional(v.string()),
     // Header/Footer display configuration
     header_display_config: v.optional(v.object({
       logo: v.boolean(),
@@ -89,7 +93,7 @@ export default defineSchema({
     last_name: v.optional(v.string()),
     email: v.string(),
     phone: v.optional(v.string()),
-    role: v.string(),
+    role: v.optional(v.string()),
     department: v.optional(v.string()),
     organization_id: v.optional(v.id("organizations")),
     is_active: v.boolean(),
@@ -132,6 +136,7 @@ export default defineSchema({
     can_create: v.boolean(),
     can_update: v.boolean(),
     can_delete: v.boolean(),
+    can_view_others: v.optional(v.boolean()),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_user_org_model", ["user_id", "organization_id", "model_name"]),
@@ -249,6 +254,7 @@ export default defineSchema({
     bank_address_arabic: v.optional(v.string()), // Arabic bank address
     account_holder_name: v.optional(v.string()),
     account_holder_name_arabic: v.optional(v.string()), // Arabic account holder name
+    customer_ar_account_id: v.optional(v.union(v.id("chart_of_accounts"), v.string())),
     organization_id: v.id("organizations"),
     created_by: v.optional(v.string()),
     is_active: v.boolean(),
@@ -336,12 +342,29 @@ export default defineSchema({
     dimensions: v.optional(v.string()),
     weight: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
+    qr_code: v.optional(v.string()),
+    qr_generated_at: v.optional(v.string()),
     organization_id: v.id("organizations"),
     created_by: v.optional(v.string()),
     is_active: v.boolean(),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_organization", ["organization_id"]).index("by_sku", ["sku"]).index("by_category", ["category"]),
+
+  inventory_movements: defineTable({
+    inventory_id: v.id("inventory"),
+    organization_id: v.id("organizations"),
+    movement_type: v.union(v.literal("in"), v.literal("out")),
+    quantity: v.number(),
+    previous_quantity: v.number(),
+    new_quantity: v.number(),
+    reference: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    created_by: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_inventory", ["inventory_id"])
+    .index("by_organization", ["organization_id"]),
 
   quotations: defineTable({
     quotation_number: v.string(),
@@ -368,6 +391,10 @@ export default defineSchema({
     // Additional fields to support frontend requirements
     customer_name: v.optional(v.string()), // Customer name for display purposes
     description: v.optional(v.string()), // Description field for quotations
+    description_title: v.optional(v.string()), // Description title for quotations
+    sync_items_to_inventory: v.optional(v.boolean()), // Sync items to inventory flag
+    has_investor: v.optional(v.boolean()),
+    investor_percentage: v.optional(v.number()),
     valid_until: v.optional(v.string()), // Alternative to expiry_date for frontend compatibility
     created_by: v.optional(v.string()),
     created_at: v.string(),
@@ -376,7 +403,7 @@ export default defineSchema({
 
   quotation_items: defineTable({
     quotation_id: v.id("quotations"),
-    inventory_id: v.id("inventory"),
+    inventory_id: v.optional(v.id("inventory")),
     quantity: v.number(),
     unit: v.optional(v.string()), // Unit field for quotation items
     unit_price: v.number(),
@@ -393,6 +420,10 @@ export default defineSchema({
     // [2025-01-11] Added - Delivery tracking fields for partial delivery management
     delivered_quantity: v.optional(v.number()), // Total quantity delivered across all delivery notes
     remaining_quantity: v.optional(v.number()), // Remaining quantity to be delivered (calculated field)
+    // WBS and Title fields for hierarchical sub-categorization
+    wbs_code: v.optional(v.string()), // e.g. "1.0", "1.1", "1.2"
+    item_title: v.optional(v.string()), // Distinct title/heading for the line item
+    is_section_header: v.optional(v.boolean()), // Identifies if this row is a WBS section header
     created_at: v.string(),
   }).index("by_quotation", ["quotation_id"]).index("by_inventory", ["inventory_id"]),
 
@@ -488,6 +519,7 @@ export default defineSchema({
   }).index("by_organization", ["organization_id"]).index("by_priority", ["priority"]),
 
   suppliers: defineTable({
+    supplier_type: v.optional(v.union(v.literal("general"), v.literal("recruitment_agency"))),
     name: v.string(),
     name_arabic: v.optional(v.string()), // Arabic supplier name
     contact_person: v.optional(v.string()),
@@ -512,9 +544,21 @@ export default defineSchema({
     credit_days: v.optional(v.number()), // Credit days for payment terms
     credit_limit: v.optional(v.number()),
     reliability_rating: v.optional(v.number()),
+    service_ids: v.optional(v.array(v.string())),
+    recruitment_license_number: v.optional(v.string()),
+    recruitment_license_country: v.optional(v.string()),
+    recruitment_license_expiry: v.optional(v.string()),
+    recruitment_countries: v.optional(v.array(v.string())),
+    recruitment_job_categories: v.optional(v.array(v.string())),
+    recruitment_screening_checks: v.optional(v.array(v.string())),
+    recruitment_fee_model: v.optional(v.string()),
+    recruitment_fee_amount: v.optional(v.number()),
+    recruitment_fee_currency: v.optional(v.string()),
+    recruitment_replacement_days: v.optional(v.number()),
     tags: v.optional(v.array(v.string())),
     notes: v.optional(v.string()),
     notes_arabic: v.optional(v.string()), // Arabic notes
+    supplier_ap_account_id: v.optional(v.union(v.id("chart_of_accounts"), v.string())),
     organization_id: v.id("organizations"),
     created_by: v.optional(v.string()),
     is_active: v.boolean(),
@@ -635,6 +679,8 @@ export default defineSchema({
     delivery_date: v.string(),
     delivery_address: v.string(),
     delivery_address_arabic: v.optional(v.string()),
+    customer_address: v.optional(v.string()),
+    customer_address_arabic: v.optional(v.string()),
     // Detailed delivery address fields for precise delivery location
     delivery_building_number: v.optional(v.string()),
     delivery_street: v.optional(v.string()),
@@ -763,6 +809,7 @@ export default defineSchema({
     total_estimated_cost: v.number(),
     status: v.union(v.literal("draft"), v.literal("submitted"), v.literal("approved"), v.literal("rejected"), v.literal("converted")),
     requester_id: v.optional(v.string()), // Added to maintain compatibility with existing data
+    requested_by: v.optional(v.string()), // Added for backward compatibility
     requisition_date: v.optional(v.string()), // [2025-01-11] Added - Requisition date field
     required_date: v.optional(v.string()), // [2025-01-11] Added - Required date field
     notes: v.optional(v.string()), // [2025-01-11] Added - Notes field
@@ -793,6 +840,10 @@ export default defineSchema({
     specifications: v.optional(v.string()),
     priority: v.optional(v.union(v.literal("low"), v.literal("medium"), v.literal("high"), v.literal("urgent"))), // [2025-01-11] Added - Item priority
     required_date: v.optional(v.string()), // [2025-01-11] Added - Item required date
+    is_section_header: v.optional(v.boolean()),
+    item_no: v.optional(v.string()),
+    item_title: v.optional(v.string()),
+    unit: v.optional(v.string()),
     created_at: v.string(),
   }).index("by_purchase_requisition", ["purchase_requisition_id"])
     .index("by_inventory", ["inventory_id"]),
@@ -812,6 +863,10 @@ export default defineSchema({
     status: v.union(v.literal("draft"), v.literal("sent"), v.literal("confirmed"), v.literal("received"), v.literal("completed"), v.literal("cancelled")),
     payment_terms: v.optional(v.string()),
     delivery_address: v.optional(v.string()),
+    project_name: v.optional(v.string()),
+    supplier_quotation_ref: v.optional(v.string()),
+    terms_conditions: v.optional(v.string()),
+    terms_conditions_title: v.optional(v.string()),
     notes: v.optional(v.string()),
     sent_by: v.optional(v.string()),
     sent_at: v.optional(v.string()),
@@ -833,11 +888,15 @@ export default defineSchema({
     item_name: v.string(),
     description: v.optional(v.string()),
     quantity: v.number(),
+    unit: v.optional(v.string()),
     unit_price: v.number(),
     discount_percentage: v.optional(v.number()),
     discount_amount: v.optional(v.number()),
     total_price: v.number(),
     notes: v.optional(v.string()),
+    is_section_header: v.optional(v.boolean()),
+    item_no: v.optional(v.string()),
+    item_title: v.optional(v.string()),
     created_at: v.string(),
   }).index("by_purchase_order", ["purchase_order_id"])
     .index("by_inventory", ["inventory_id"]),
@@ -849,6 +908,8 @@ export default defineSchema({
     supplier_id: v.id("suppliers"),
     receipt_date: v.string(),
     delivery_note_number: v.optional(v.string()),
+    truck_number: v.optional(v.string()),
+    driver_name: v.optional(v.string()),
     status: v.union(v.literal("received"), v.literal("partially_received"), v.literal("completed")),
     notes: v.optional(v.string()),
     received_by: v.optional(v.string()),
@@ -978,6 +1039,15 @@ export default defineSchema({
     is_shared: v.optional(v.boolean()), // Whether this expense is shared among partners - made optional for existing data
     shared_percentage: v.optional(v.number()), // Percentage of expense shared among partners
     paid_by_partner_id: v.optional(v.id("partners")), // Partner who paid for this expense
+    payment_source: v.optional(v.string()), // 'personal_reimbursement' | 'petty_cash'
+    manager_approved_by: v.optional(v.string()),
+    manager_approved_at: v.optional(v.string()),
+    accountant_reviewed_by: v.optional(v.string()),
+    accountant_reviewed_at: v.optional(v.string()),
+    journal_voucher_number: v.optional(v.string()),
+    vat_amount: v.optional(v.number()),
+    subtotal_amount: v.optional(v.number()),
+    vat_number: v.optional(v.string()),
     created_by: v.string(),
     created_at: v.string(),
     updated_at: v.string(),
@@ -1021,13 +1091,7 @@ export default defineSchema({
     purchase_order_id: v.optional(v.id("purchase_orders")),
     
     // Invoice Type and Reference Chain
-    reference_type: v.optional(v.union(
-      v.literal("lead"),
-      v.literal("quotation"), 
-      v.literal("purchase_order"),
-      v.literal("delivery_note"),
-      v.literal("standalone")
-    )),
+    reference_type: v.optional(v.string()),
     reference_chain: v.optional(v.array(v.string())),
     
     // Enhanced Process Flow References
@@ -1039,12 +1103,7 @@ export default defineSchema({
     source_purchase_order_number: v.optional(v.string()),
     
     // Invoice Classification
-    invoice_type: v.union(
-      v.literal("standard"),
-      v.literal("simplified"),
-      v.literal("credit_note"),
-      v.literal("debit_note")
-    ),
+    invoice_type: v.string(),
     
     // Dates
     invoice_date: v.string(),
@@ -1054,7 +1113,7 @@ export default defineSchema({
     // Customer Information (Denormalized for performance)
     customer_name: v.string(),
     customer_name_arabic: v.optional(v.string()),
-    customer_address: v.string(),
+    customer_address: v.optional(v.string()),
     customer_address_arabic: v.optional(v.string()),
     customer_vat_number: v.optional(v.string()),
     customer_tax_id: v.optional(v.string()),
@@ -1069,10 +1128,22 @@ export default defineSchema({
     vat_amount_sar: v.number(),
     
     // Terms and Conditions
-    payment_terms: v.string(),
-    delivery_terms: v.string(),
+    payment_terms: v.optional(v.string()),
+    delivery_terms: v.optional(v.string()),
     notes: v.optional(v.string()),
     notes_arabic: v.optional(v.string()),
+    terms_conditions: v.optional(v.string()),
+    customer_po_reference: v.optional(v.string()),
+    delivery_note_number: v.optional(v.string()),
+    advance_amount: v.optional(v.number()),
+    balance_due: v.optional(v.number()),
+    other_deductions: v.optional(v.number()),
+    retention_amount: v.optional(v.number()),
+    qr_code_data: v.optional(v.string()),
+    seller_bank_details: v.optional(v.string()),
+    customer_bank_details: v.optional(v.string()),
+    project_reference: v.optional(v.string()),
+    is_advance_payment_request: v.optional(v.boolean()),
     
     // Tax Treatment
     is_reverse_charge: v.optional(v.boolean()),
@@ -1111,6 +1182,13 @@ export default defineSchema({
     zatca_ubl_xml: v.optional(v.string()),
     zatca_submission_status: v.optional(v.string()),
     zatca_submission_timestamp: v.optional(v.string()),
+    zatca_enabled: v.optional(v.boolean()),
+    zatca_invoice_counter: v.optional(v.number()),
+    zatca_invoice_type: v.optional(v.string()),
+    zatca_previous_hash: v.optional(v.string()),
+    zatca_qr_code_tlv: v.optional(v.string()),
+    zatca_uuid: v.optional(v.string()),
+    zatca_xml_content: v.optional(v.string()),
     
     compliance_result: v.optional(v.any()),
     compliance_date: v.optional(v.string()),
@@ -1147,27 +1225,31 @@ export default defineSchema({
   // Invoice Items Table
   invoice_items: defineTable({
     invoice_id: v.id("invoices"),
-    item_number: v.number(),
+    item_number: v.optional(v.number()),
     
     // Item Description
     description: v.string(),
-    description_arabic: v.string(),
+    description_arabic: v.optional(v.string()),
     
     // Quantity and Pricing
     quantity: v.number(),
-    unit: v.string(),
+    delivered_quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
     unit_price: v.number(),
     discount_amount: v.optional(v.number()),
     discount_percentage: v.optional(v.number()),
-    taxable_amount: v.number(),
+    taxable_amount: v.optional(v.number()),
     
     // VAT Information
     vat_rate: v.number(),
     vat_amount: v.number(),
-    total_amount: v.number(),
+    total_amount: v.optional(v.number()),
+    line_total: v.optional(v.number()),
+    line_total_with_vat: v.optional(v.number()),
+    quotation_item_id: v.optional(v.union(v.id("quotation_items"), v.string())),
     
     // Supply Type
-    supply_type: v.string(),
+    supply_type: v.optional(v.string()),
     supply_type_arabic: v.optional(v.string()),
     
     // Tax Exemptions
@@ -1297,4 +1379,970 @@ export default defineSchema({
     .index("by_inquiry_process", ["inquiry_process_id"])
     .index("by_status", ["status"])
     .index("by_primary_reference", ["is_primary_reference"]),
+
+  // Units table for inventory management
+  units: defineTable({
+    name: v.string(),
+    name_arabic: v.optional(v.string()),
+    abbreviation: v.optional(v.string()),
+    abbreviation_arabic: v.optional(v.string()),
+    category: v.optional(v.string()),
+    is_predefined: v.optional(v.boolean()),
+    organization_id: v.id("organizations"),
+    is_active: v.boolean(),
+    created_by: v.string(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_name", ["name"])
+    .index("by_category", ["category"]),
+
+  // ========================================
+  // CORE ACCOUNTING MODULE TABLES
+  // ========================================
+
+  accounting_settings: defineTable({
+    organization_id: v.id("organizations"),
+    fiscal_year_start: v.string(),
+    default_currency: v.string(),
+    base_currency: v.string(),
+    auto_generate_voucher_numbers: v.boolean(),
+    voucher_number_prefix: v.string(),
+    receipt_number_prefix: v.string(),
+    payment_number_prefix: v.string(),
+    enable_multi_currency: v.boolean(),
+    enable_budget_control: v.boolean(),
+    enable_approval_workflow: v.boolean(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"]),
+
+  fiscal_periods: defineTable({
+    organization_id: v.id("organizations"),
+    fiscal_year: v.string(),
+    period_code: v.string(),
+    period_name: v.string(),
+    start_date: v.string(),
+    end_date: v.string(),
+    is_closed: v.boolean(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_fiscal_year", ["organization_id", "fiscal_year"])
+    .index("by_organization", ["organization_id"]),
+
+  chart_of_accounts: defineTable({
+    organization_id: v.id("organizations"),
+    account_code: v.string(),
+    account_name: v.string(),
+    account_name_arabic: v.optional(v.string()),
+    account_type: v.string(),
+    account_category: v.string(),
+    normal_balance: v.optional(v.string()),
+    parent_account_id: v.optional(v.id("chart_of_accounts")),
+    description: v.optional(v.string()),
+    created_by: v.union(v.id("user_profiles"), v.string()),
+    is_active: v.boolean(),
+    is_system_account: v.boolean(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_account_code", ["organization_id", "account_code"])
+    .index("by_account_type", ["organization_id", "account_type"])
+    .index("by_parent_account", ["parent_account_id"]),
+
+  general_ledger: defineTable({
+    organization_id: v.id("organizations"),
+    account_id: v.id("chart_of_accounts"),
+    transaction_id: v.string(),
+    transaction_type: v.string(),
+    reference_id: v.optional(v.string()),
+    reference_type: v.optional(v.string()),
+    debit_amount: v.number(),
+    credit_amount: v.number(),
+    balance: v.number(),
+    currency: v.string(),
+    exchange_rate: v.optional(v.number()),
+    description: v.string(),
+    description_arabic: v.optional(v.string()),
+    transaction_date: v.string(),
+    fiscal_year: v.string(),
+    fiscal_period: v.string(),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_account", ["organization_id", "account_id"])
+    .index("by_transaction", ["transaction_id"])
+    .index("by_transaction_date", ["organization_id", "transaction_date"])
+    .index("by_fiscal_period", ["organization_id", "fiscal_period"]),
+
+  journal_vouchers: defineTable({
+    organization_id: v.id("organizations"),
+    voucher_number: v.string(),
+    voucher_date: v.string(),
+    reference_number: v.optional(v.string()),
+    description: v.string(),
+    description_arabic: v.optional(v.string()),
+    total_debit: v.number(),
+    total_credit: v.number(),
+    currency: v.string(),
+    exchange_rate: v.optional(v.number()),
+    status: v.string(),
+    fiscal_year: v.string(),
+    fiscal_period: v.string(),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_voucher_number", ["organization_id", "voucher_number"])
+    .index("by_voucher_date", ["organization_id", "voucher_date"])
+    .index("by_status", ["organization_id", "status"]),
+
+  journal_voucher_entries: defineTable({
+    organization_id: v.id("organizations"),
+    voucher_id: v.id("journal_vouchers"),
+    account_id: v.id("chart_of_accounts"),
+    debit_amount: v.number(),
+    credit_amount: v.number(),
+    description: v.string(),
+    description_arabic: v.optional(v.string()),
+    reference: v.optional(v.string()),
+    created_at: v.string(),
+  }).index("by_voucher", ["voucher_id"])
+    .index("by_account", ["account_id"]),
+
+  payments: defineTable({
+    organization_id: v.id("organizations"),
+    payment_number: v.string(),
+    payment_date: v.string(),
+    supplier_id: v.optional(v.id("suppliers")),
+    supplier_name: v.optional(v.string()),
+    payment_method: v.string(),
+    bank_account_id: v.optional(v.id("chart_of_accounts")),
+    amount: v.number(),
+    currency: v.string(),
+    exchange_rate: v.optional(v.number()),
+    description: v.string(),
+    description_arabic: v.optional(v.string()),
+    reference_invoice_ids: v.optional(v.array(v.string())),
+    status: v.string(),
+    fiscal_year: v.string(),
+    fiscal_period: v.string(),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_payment_number", ["organization_id", "payment_number"])
+    .index("by_payment_date", ["organization_id", "payment_date"])
+    .index("by_supplier", ["organization_id", "supplier_id"]),
+
+  receipts: defineTable({
+    organization_id: v.id("organizations"),
+    receipt_number: v.string(),
+    receipt_date: v.string(),
+    customer_id: v.optional(v.id("customers")),
+    customer_name: v.optional(v.string()),
+    payment_method: v.string(),
+    bank_account_id: v.optional(v.id("chart_of_accounts")),
+    amount: v.number(),
+    currency: v.string(),
+    exchange_rate: v.optional(v.number()),
+    description: v.string(),
+    description_arabic: v.optional(v.string()),
+    reference_invoice_ids: v.optional(v.array(v.string())),
+    status: v.string(),
+    fiscal_year: v.string(),
+    fiscal_period: v.string(),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_receipt_number", ["organization_id", "receipt_number"])
+    .index("by_receipt_date", ["organization_id", "receipt_date"])
+    .index("by_customer", ["organization_id", "customer_id"]),
+
+  // ========================================
+  // CORPORATE GOVERNANCE & MULTI-COMPANY TABLES
+  // ========================================
+
+  projects: defineTable({
+    organization_id: v.id("organizations"), // Lead Contractor / Project Owner Org
+    project_code: v.string(),
+    name: v.string(),
+    name_arabic: v.optional(v.string()),
+    client_name: v.string(),
+    contract_value: v.number(),
+    currency: v.string(),
+    start_date: v.string(),
+    planned_end_date: v.string(),
+    actual_end_date: v.optional(v.string()),
+    location: v.optional(v.string()),
+    status: v.union(v.literal("tender"), v.literal("active"), v.literal("suspended"), v.literal("completed"), v.literal("closed")),
+    description: v.optional(v.string()),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_project_code", ["project_code"])
+    .index("by_status", ["organization_id", "status"]),
+
+  collaboration_agreements: defineTable({
+    agreement_code: v.string(),
+    project_id: v.id("projects"),
+    primary_organization_id: v.id("organizations"), // Legal Umbrella (Company A)
+    partner_organization_id: v.id("organizations"), // Operating Partner (Company B, C, D)
+    collaboration_type: v.string(), // "CR_BRAND_SPONSORSHIP", "EQUIPMENT_LEASE", "MANPOWER_SECONDMENT", "CONSORTIUM_JV", "SHARED_PROCUREMENT", "GENERAL_SUBCONTRACT"
+    status: v.union(v.literal("draft"), v.literal("active"), v.literal("suspended"), v.literal("terminated"), v.literal("completed")),
+    effective_from: v.string(),
+    effective_to: v.string(),
+    management_fee_type: v.union(v.literal("zero_fee"), v.literal("percentage"), v.literal("fixed_monthly"), v.literal("profit_split")),
+    management_fee_value: v.number(), // 0 for zero fee, e.g. 3 for 3%
+    liability_cap: v.optional(v.number()),
+    dispute_jurisdiction: v.optional(v.string()),
+    terms_summary: v.optional(v.string()),
+    signed_by_primary: v.optional(v.id("user_profiles")),
+    signed_by_partner: v.optional(v.id("user_profiles")),
+    signed_at: v.optional(v.string()),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_primary_org", ["primary_organization_id"])
+    .index("by_partner_org", ["partner_organization_id"])
+    .index("by_project", ["project_id"])
+    .index("by_status", ["status"]),
+
+  promissory_notes: defineTable({
+    note_number: v.string(), // e.g. "SANAD-2026-001"
+    project_id: v.id("projects"),
+    collaboration_agreement_id: v.optional(v.id("collaboration_agreements")),
+    issuing_organization_id: v.id("organizations"), // Company A (Legal Debtor on note)
+    beneficiary_organization_id: v.id("organizations"), // Company B (Operating company using it)
+    creditor_name: v.string(), // Supplier / Vendor / Bank holding the note
+    creditor_cr: v.optional(v.string()),
+    amount: v.number(),
+    currency: v.string(),
+    issue_date: v.string(),
+    due_date: v.string(),
+    nafith_reference: v.optional(v.string()),
+    purpose: v.string(),
+    counter_secured: v.boolean(), // True if Company B signed a counter-indemnity note
+    counter_security_details: v.optional(v.string()),
+    counter_security_doc_url: v.optional(v.string()),
+    status: v.union(v.literal("draft"), v.literal("active"), v.literal("discharged"), v.literal("enforced"), v.literal("disputed")),
+    discharged_at: v.optional(v.string()),
+    discharged_by: v.optional(v.id("user_profiles")),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_issuing_org", ["issuing_organization_id"])
+    .index("by_beneficiary_org", ["beneficiary_organization_id"])
+    .index("by_project", ["project_id"])
+    .index("by_due_date", ["due_date"])
+    .index("by_status", ["status"]),
+
+  borrowing_facilities: defineTable({
+    facility_code: v.string(),
+    legal_debtor_organization_id: v.id("organizations"), // Company A (whose name facility is opened in)
+    beneficiary_organization_id: v.id("organizations"), // Company B (who draws and uses funds)
+    project_id: v.optional(v.id("projects")),
+    lender_name: v.string(),
+    facility_type: v.union(v.literal("bank_loan"), v.literal("overdraft"), v.literal("invoice_factoring"), v.literal("supplier_credit_line"), v.literal("kafala")),
+    approved_limit: v.number(),
+    drawn_amount: v.number(),
+    outstanding_balance: v.number(),
+    finance_cost_rate: v.number(), // Interest / Murabaha percentage
+    currency: v.string(),
+    start_date: v.string(),
+    expiry_date: v.string(),
+    counter_indemnity_verified: v.boolean(),
+    repayment_waterfall_priority: v.number(), // Default 1 (Senior priority)
+    status: v.union(v.literal("active"), v.literal("frozen"), v.literal("closed")),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_debtor_org", ["legal_debtor_organization_id"])
+    .index("by_beneficiary_org", ["beneficiary_organization_id"])
+    .index("by_status", ["status"]),
+
+  credit_drawdowns: defineTable({
+    drawdown_reference: v.string(),
+    facility_id: v.id("borrowing_facilities"),
+    project_id: v.id("projects"),
+    requested_by_org_id: v.id("organizations"), // Company B
+    approved_by_org_id: v.id("organizations"), // Company A
+    drawdown_amount: v.number(),
+    accrued_fees: v.number(),
+    drawdown_date: v.string(),
+    repayment_due_date: v.string(),
+    purpose_details: v.string(),
+    repaid_amount: v.number(),
+    status: v.union(v.literal("requested"), v.literal("approved"), v.literal("disbursed"), v.literal("repaid"), v.literal("defaulted")),
+    approved_by: v.optional(v.id("user_profiles")),
+    approved_at: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_facility", ["facility_id"])
+    .index("by_project", ["project_id"])
+    .index("by_status", ["status"]),
+
+  credential_authorizations: defineTable({
+    passport_code: v.string(),
+    authorizing_organization_id: v.id("organizations"), // Company A
+    authorized_organization_id: v.id("organizations"), // Company B
+    project_id: v.optional(v.id("projects")),
+    credential_type: v.string(), // "Commercial Registration (CR)", "Class 1 Contractor Classification", "Aramco Vendor Code", etc.
+    certificate_reference: v.string(),
+    allowed_tender_scope: v.string(),
+    max_authorized_value: v.optional(v.number()),
+    valid_from: v.string(),
+    valid_to: v.string(),
+    verification_token: v.string(), // Cryptographic token for verification QR
+    allows_borrowing: v.boolean(),
+    status: v.union(v.literal("active"), v.literal("expired"), v.literal("revoked")),
+    approved_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_authorizing_org", ["authorizing_organization_id"])
+    .index("by_authorized_org", ["authorized_organization_id"])
+    .index("by_token", ["verification_token"])
+    .index("by_status", ["status"]),
+
+  responsibility_matrices: defineTable({
+    project_id: v.id("projects"),
+    activity_name: v.string(),
+    wbs_code: v.optional(v.string()),
+    discipline: v.string(), // "Civil", "Mechanical", "Electrical", "HSE", "Billing", "Procurement"
+    organization_id: v.id("organizations"),
+    raci_role: v.union(v.literal("R"), v.literal("A"), v.literal("C"), v.literal("I"), v.literal("INDEMNIFIER")),
+    liability_notes: v.optional(v.string()),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_project", ["project_id"])
+    .index("by_org", ["organization_id"])
+    .index("by_project_discipline", ["project_id", "discipline"]),
+
+  resources: defineTable({
+    owner_organization_id: v.id("organizations"),
+    category: v.union(v.literal("manpower"), v.literal("heavy_equipment"), v.literal("light_vehicle"), v.literal("material"), v.literal("specialist"), v.literal("facility"), v.literal("financial_credit"), v.literal("license")),
+    sub_category: v.string(),
+    identifier: v.string(),
+    name: v.string(),
+    name_arabic: v.optional(v.string()),
+    standard_unit: v.string(),
+    base_rate: v.number(),
+    currency: v.string(),
+    current_status: v.union(v.literal("available"), v.literal("allocated"), v.literal("maintenance"), v.literal("retired")),
+    current_location: v.optional(v.string()),
+    specifications: v.optional(v.any()),
+    expiry_date: v.optional(v.string()),
+    is_sharable_externally: v.boolean(),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_owner", ["owner_organization_id"])
+    .index("by_category", ["owner_organization_id", "category"])
+    .index("by_status", ["owner_organization_id", "current_status"]),
+
+  resource_requests: defineTable({
+    request_number: v.string(),
+    project_id: v.id("projects"),
+    collaboration_agreement_id: v.optional(v.id("collaboration_agreements")),
+    requesting_organization_id: v.id("organizations"),
+    supplying_organization_id: v.id("organizations"),
+    resource_id: v.optional(v.id("resources")),
+    category: v.string(),
+    quantity: v.number(),
+    unit: v.string(),
+    requested_rate: v.number(),
+    start_date: v.string(),
+    end_date: v.string(),
+    mobilization_location: v.string(),
+    terms_conditions: v.optional(v.string()),
+    counter_offer_data: v.optional(v.any()),
+    status: v.union(v.literal("submitted"), v.literal("counter_offered"), v.literal("approved"), v.literal("rejected"), v.literal("allocated"), v.literal("cancelled")),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_requesting_org", ["requesting_organization_id"])
+    .index("by_supplying_org", ["supplying_organization_id"])
+    .index("by_project", ["project_id"])
+    .index("by_status", ["status"]),
+
+  resource_allocations: defineTable({
+    allocation_number: v.string(),
+    request_id: v.id("resource_requests"),
+    resource_id: v.id("resources"),
+    project_id: v.id("projects"),
+    supplying_organization_id: v.id("organizations"),
+    receiving_organization_id: v.id("organizations"),
+    handover_date: v.string(),
+    handover_meter_reading: v.optional(v.number()),
+    handover_condition_notes: v.optional(v.string()),
+    handover_signoff_by: v.optional(v.id("user_profiles")),
+    expected_return_date: v.string(),
+    actual_return_date: v.optional(v.string()),
+    return_meter_reading: v.optional(v.number()),
+    return_condition_notes: v.optional(v.string()),
+    return_signoff_by: v.optional(v.id("user_profiles")),
+    status: v.union(v.literal("mobilizing"), v.literal("active_on_site"), v.literal("demobilizing"), v.literal("returned"), v.literal("maintenance_hold")),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_resource", ["resource_id"])
+    .index("by_request", ["request_id"])
+    .index("by_project", ["project_id"])
+    .index("by_status", ["status"]),
+
+  inter_company_transactions: defineTable({
+    transaction_code: v.string(),
+    project_id: v.id("projects"),
+    collaboration_agreement_id: v.optional(v.id("collaboration_agreements")),
+    debtor_organization_id: v.id("organizations"), // Owes money
+    creditor_organization_id: v.id("organizations"), // Receives money
+    allocation_id: v.optional(v.id("resource_allocations")),
+    transaction_type: v.union(
+      v.literal("client_progress_share"),
+      v.literal("material_recharge"),
+      v.literal("equipment_hire"),
+      v.literal("manpower_subcontract"),
+      v.literal("site_fuel_dispensed"),
+      v.literal("camp_accommodation"),
+      v.literal("management_fee"),
+      v.literal("safety_fine_deduction"),
+      v.literal("debt_repayment")
+    ),
+    amount_excl_vat: v.number(),
+    vat_rate: v.number(), // 15
+    vat_amount: v.number(),
+    total_amount: v.number(),
+    currency: v.string(),
+    transaction_date: v.string(),
+    description: v.string(),
+    supporting_doc_url: v.optional(v.string()),
+    reference_po_or_invoice: v.optional(v.string()),
+    is_settled: v.boolean(),
+    settlement_id: v.optional(v.id("bilateral_settlements")),
+    status: v.union(v.literal("unverified"), v.literal("verified"), v.literal("disputed"), v.literal("approved_for_settlement"), v.literal("settled")),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_debtor_org", ["debtor_organization_id"])
+    .index("by_creditor_org", ["creditor_organization_id"])
+    .index("by_project", ["project_id"])
+    .index("by_settled", ["is_settled"])
+    .index("by_status", ["status"]),
+
+  bilateral_settlements: defineTable({
+    settlement_reference: v.string(), // e.g. "SETTLE-2026-10-001"
+    collaboration_agreement_id: v.optional(v.id("collaboration_agreements")),
+    organization_a_id: v.id("organizations"),
+    organization_b_id: v.id("organizations"),
+    statement_period_start: v.string(),
+    statement_period_end: v.string(),
+    gross_a_to_b: v.number(),
+    gross_b_to_a: v.number(),
+    net_vat_offset: v.number(),
+    net_payable_amount: v.number(),
+    net_payer_organization_id: v.id("organizations"),
+    net_payee_organization_id: v.id("organizations"),
+    currency: v.string(),
+    status: v.union(v.literal("draft"), v.literal("reconciled"), v.literal("signed"), v.literal("discharged")),
+    signed_by_a: v.optional(v.id("user_profiles")),
+    signed_by_b: v.optional(v.id("user_profiles")),
+    payment_reference: v.optional(v.string()),
+    discharged_at: v.optional(v.string()),
+    created_by: v.id("user_profiles"),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_org_pair", ["organization_a_id", "organization_b_id"])
+    .index("by_status", ["status"]),
+
+  governance_audit_logs: defineTable({
+    entity_type: v.string(), // "promissory_note", "drawdown", "credential_auth", "counter_offer", "settlement"
+    entity_id: v.string(),
+    action: v.string(),
+    actor_user_id: v.id("user_profiles"),
+    actor_organization_id: v.id("organizations"),
+    timestamp: v.string(),
+    previous_state: v.optional(v.any()),
+    new_state: v.optional(v.any()),
+    reason: v.optional(v.string()),
+    ip_address: v.optional(v.string()),
+  }).index("by_entity", ["entity_type", "entity_id"])
+    .index("by_org", ["actor_organization_id"])
+    .index("by_timestamp", ["timestamp"]),
+
+  // ==========================================
+  // HR, KSA SALARY & RESTRICTED ACCESS MODULE
+  // ==========================================
+  employees: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    user_id: v.optional(v.union(v.id("user_profiles"), v.string())),
+    employee_number: v.string(), // e.g. "EMP-001"
+    first_name: v.string(),
+    last_name: v.string(),
+    full_name_arabic: v.string(),
+    national_id_or_iqama: v.string(), // 10-digit Saudi ID or Iqama
+    nationality: v.string(), // "SA" or ISO-2
+    is_saudi: v.boolean(),
+    gender: v.string(), // "male" | "female"
+    job_title: v.string(),
+    job_title_arabic: v.optional(v.string()),
+    department: v.string(),
+    date_of_birth: v.optional(v.string()),
+    hire_date: v.string(),
+    contract_type: v.string(), // "fixed_term" | "indefinite"
+    probation_end_date: v.optional(v.string()),
+
+    // Enhanced Employment Classification & Work Parameters
+    employment_type: v.optional(v.string()), // "permanent" | "fixed_term" | "probationary" | "part_time" | "temporary" | "consultant" | "ajeer_subcontracted" | "intern_tamheer" | "remote"
+    work_location: v.optional(v.string()), // "head_office_riyadh" | "khobar_branch" | "jeddah_hub" | "site_project" | "remote"
+    site_project_name: v.optional(v.string()),
+    work_location_spl: v.optional(v.string()), // Saudi Post (SPL) Short Address e.g. "RRRD2929"
+    work_location_gps: v.optional(v.string()), // GPS Lat,Lng e.g. "24.7136, 46.6753"
+    work_location_maps_url: v.optional(v.string()), // Google Maps URL
+
+    // National Address (العنوان الوطني - Saudi Post SPL)
+    national_address: v.optional(v.object({
+      short_address: v.optional(v.string()), // e.g. "RRRD2929" (Primary SPL National Address)
+      spl_address: v.optional(v.string()),
+      gps_coordinates: v.optional(v.string()),
+      building_number: v.optional(v.string()),
+      street_name: v.optional(v.string()),
+      street_name_arabic: v.optional(v.string()),
+      district: v.optional(v.string()),
+      district_arabic: v.optional(v.string()),
+      city: v.optional(v.string()),
+      city_arabic: v.optional(v.string()),
+      postal_code: v.optional(v.string()),
+      additional_number: v.optional(v.string()),
+    })),
+
+    // Medical Examination & Reports (الكشف الطبي / فحص الإقامة وما قبل التوظيف / منصة إفادة Efada)
+    medical_report: v.optional(v.object({
+      status: v.string(), // "fit" | "unfit" | "pending_results"
+      medical_center: v.string(),
+      exam_date: v.string(),
+      report_reference_no: v.optional(v.string()), // Efada / Report reference
+      attachment_url: v.optional(v.string()),
+      file_name: v.optional(v.string()),
+      notes: v.optional(v.string()),
+    })),
+
+    // Emergency Contact & Medical Notes
+    emergency_contact: v.optional(v.object({
+      name: v.string(),
+      relationship: v.string(),
+      phone_primary: v.string(),
+      phone_secondary: v.optional(v.string()),
+      city: v.optional(v.string()),
+    })),
+    blood_group: v.optional(v.string()), // "A+", "B+", "O+", "AB+", etc.
+    chronic_medical_notes: v.optional(v.string()),
+
+    // GOSI (التأمينات الاجتماعية) Details
+    gosi_subscriber_number: v.optional(v.string()),
+    gosi_registration_date: v.optional(v.string()),
+
+    // Dependents for Medical Insurance (CCHI)
+    dependents: v.optional(v.array(v.object({
+      full_name: v.string(),
+      relationship: v.string(), // "spouse" | "son" | "daughter" | "parent"
+      national_id_or_iqama: v.string(),
+      date_of_birth: v.optional(v.string()),
+      gender: v.string(),
+    }))),
+
+    // Qiwa (منصة قوى - MHRSD) Contract Integration
+    qiwa_contract_id: v.optional(v.string()), // e.g. "QW-10829471"
+    qiwa_contract_status: v.optional(v.string()), // "authenticated" | "pending_signature" | "draft" | "unlinked"
+    qiwa_authenticated_at: v.optional(v.string()),
+
+    status: v.string(), // "active" | "pending_whatsapp_approval" | "on_leave" | "probation" | "terminated"
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+
+    // Saudi Banking & WPS (Wage Protection System)
+    bank_name: v.string(), // e.g. "Al Rajhi Bank"
+    bank_swift_code: v.string(), // e.g. "RJHISARI"
+    iban: v.string(), // 24-character Saudi IBAN (SA...)
+
+    // ERP Access Control & Granular Permissions
+    erp_access_enabled: v.boolean(),
+    assigned_role: v.string(), // "sales_officer", "procurement_specialist", "accountant", "cashier", "warehouse_manager", "hr_manager", "general_staff"
+    module_permissions: v.array(v.string()), // Array of specific permission keys e.g. ["quotations:create", "quotations:read", "invoices:read"]
+    data_scope: v.string(), // "own" | "department" | "organization"
+
+    // WhatsApp Approval Tracking for Access
+    access_approval_status: v.string(), // "none" | "pending_whatsapp_approval" | "approved" | "rejected"
+    access_approved_by: v.optional(v.string()),
+    // Employment Level (1 to 7) & Org Chart Hierarchy
+    employment_level: v.optional(v.number()), // 1 (C-Suite) to 7 (Entry/Intern)
+    reports_to_id: v.optional(v.string()), // Reports-to employee ID for Org Chart
+
+    // 2FA Security
+    phone_2fa_verified: v.optional(v.boolean()),
+    two_factor_enabled: v.optional(v.boolean()),
+
+    is_active: v.boolean(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_user_id", ["user_id"])
+    .index("by_national_id", ["national_id_or_iqama"])
+    .index("by_emp_number", ["organization_id", "employee_number"]),
+
+  // Employee Salary Contract (KSA Labor Law & GOSI Compliant)
+  employee_compensation: defineTable({
+    employee_id: v.union(v.id("employees"), v.string()),
+    organization_id: v.union(v.id("organizations"), v.string()),
+    basic_salary: v.number(),
+    housing_allowance: v.number(), // Typically 25% of basic
+    transport_allowance: v.number(),
+    other_allowances: v.number(),
+    currency: v.string(), // "SAR"
+
+    // GOSI (General Organization for Social Insurance)
+    is_saudi: v.boolean(),
+    gosi_applicable: v.boolean(),
+    gosi_employee_rate: v.number(), // 0.0975 for Saudi (9% Annuities + 0.75% SANED), 0 for Expat
+    gosi_employer_rate: v.number(), // 0.1175 for Saudi, 0.02 for Expat
+    gosi_employee_deduction: v.number(),
+    gosi_employer_contribution: v.number(),
+
+    // Totals
+    gross_salary: v.number(), // Basic + Housing + Transport + Other
+    net_salary: v.number(), // Gross - GOSI Employee Deduction
+
+    effective_date: v.string(),
+    status: v.string(), // "active" | "pending_whatsapp_approval" | "rejected"
+    approval_request_id: v.optional(v.string()),
+
+    // Qiwa (منصة قوى) Contract Mirroring
+    qiwa_contract_id: v.optional(v.string()),
+    qiwa_contract_status: v.optional(v.string()),
+    qiwa_authenticated_at: v.optional(v.string()),
+
+    approved_by: v.optional(v.string()),
+    approved_at: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_employee", ["employee_id"])
+    .index("by_organization", ["organization_id"]),
+
+  // Stakeholder Approvers for WhatsApp Bot
+  stakeholder_approvers: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    full_name: v.string(),
+    role: v.string(), // "sponsor", "managing_director", "cfo", "hr_director", "owner"
+    phone_number: v.string(), // e.g. "+966501234567"
+    is_active: v.boolean(),
+    notification_channel: v.string(), // "whatsapp"
+    approval_scope: v.array(v.string()), // ["erp_access", "salary_contract", "payroll_batch", "all"]
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_org", ["organization_id"])
+    .index("by_phone", ["phone_number"]),
+
+  // WhatsApp Approval Request Log & Audit Trail
+  whatsapp_approval_requests: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    request_type: v.string(), // "erp_access" | "salary_contract" | "payroll_batch" | "eosb_settlement"
+    reference_id: v.string(), // e.g. "EMP-001", "PAY-2026-10"
+    reference_record_id: v.string(),
+    verification_token: v.string(), // Unique one-time token for callback authentication
+    approver_phone: v.string(),
+    approver_name: v.string(),
+    status: v.string(), // "pending" | "approved" | "rejected" | "expired"
+    summary_text: v.string(),
+    payload: v.optional(v.string()), // JSON string of details
+    sent_at: v.string(),
+    responded_at: v.optional(v.string()),
+    raw_whatsapp_payload: v.optional(v.string()),
+    rejection_reason: v.optional(v.string()),
+  }).index("by_token", ["verification_token"])
+    .index("by_status", ["status"])
+    .index("by_org", ["organization_id"])
+    .index("by_ref", ["reference_record_id"]),
+
+  // Monthly Payroll Runs & WPS SIF Generation
+  payroll_runs: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    payroll_month: v.string(), // e.g. "2026-10"
+    total_employees: v.number(),
+    total_basic: v.number(),
+    total_housing: v.number(),
+    total_allowances: v.number(),
+    total_gosi_deductions: v.number(),
+    total_net_payable: v.number(),
+    currency: v.string(), // "SAR"
+    status: v.string(), // "draft" | "pending_whatsapp_approval" | "approved" | "processed"
+    whatsapp_approval_id: v.optional(v.string()),
+    approved_by_stakeholder: v.optional(v.string()),
+    approved_at: v.optional(v.string()),
+    sif_file_generated: v.boolean(),
+    sif_file_content: v.optional(v.string()), // SAMA/Mudad standard SIF text
+    processed_at: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_org_month", ["organization_id", "payroll_month"])
+    .index("by_org", ["organization_id"]),
+
+  // Custom User-Defined Departments
+  departments: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    name: v.string(),
+    name_arabic: v.optional(v.string()),
+    code: v.optional(v.string()),
+    description: v.optional(v.string()),
+    parent_department_id: v.optional(v.string()),
+    head_of_department_id: v.optional(v.string()),
+    is_active: v.boolean(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"]),
+
+  // Custom User-Defined Banks & Bank Accounts
+  organization_banks: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    bank_name: v.string(),
+    bank_name_arabic: v.optional(v.string()),
+    swift_code: v.string(),
+    account_number: v.optional(v.string()),
+    iban: v.optional(v.string()),
+    currency: v.optional(v.string()),
+    is_active: v.boolean(),
+    created_at: v.string(),
+  }).index("by_organization", ["organization_id"]),
+
+  // Phone 2FA Verification Codes
+  phone_verifications: defineTable({
+    phone_number: v.string(),
+    otp_code: v.string(),
+    expires_at: v.string(),
+    verified: v.boolean(),
+    created_at: v.string(),
+  }).index("by_phone", ["phone_number"]),
+
+  // Employee Leaves & Vacations (Saudi Labor Law Articles 109-117 Compliant)
+  employee_leaves: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    employee_id: v.union(v.id("employees"), v.string()),
+    leave_type: v.string(), // "annual" | "sick" | "unpaid" | "marriage" | "paternity" | "bereavement" | "maternity" | "hajj"
+    start_date: v.string(), // "YYYY-MM-DD"
+    end_date: v.string(),   // "YYYY-MM-DD"
+    days_count: v.number(),
+    status: v.string(), // "pending_manager_approval" | "pending_hr_approval" | "approved" | "rejected"
+    manager_approval_request_id: v.optional(v.string()),
+    hr_approval_request_id: v.optional(v.string()),
+    travel_outside_saudi: v.optional(v.boolean()),
+    medical_report_ref: v.optional(v.string()), // Sehhaty (صحتي) SL report number
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_employee", ["employee_id"])
+    .index("by_org", ["organization_id"])
+    .index("by_emp_dates", ["employee_id", "start_date"]),
+
+  employee_exit_reentry_tasks: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    employee_id: v.union(v.id("employees"), v.string()),
+    leave_id: v.id("employee_leaves"),
+    status: v.string(), // "pending" | "in_progress" | "completed" | "cancelled"
+    created_at: v.string(),
+    updated_at: v.string(),
+    notes: v.optional(v.string()),
+  }).index("by_org", ["organization_id"])
+    .index("by_leave", ["leave_id"]),
+
+  // Employee Legal Documents & Expiries (Iqama, Passport, CCHI Insurance, Licenses)
+  employee_legal_documents: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    employee_id: v.union(v.id("employees"), v.string()),
+    document_type: v.string(), // "iqama" | "national_id" | "passport" | "medical_insurance" | "driving_license" | "professional_accreditation" | "ajeer_notice"
+    document_number: v.string(),
+    issue_date_gregorian: v.string(),
+    issue_date_hijri: v.optional(v.string()),
+    expiry_date_gregorian: v.string(),
+    expiry_date_hijri: v.optional(v.string()),
+    issuing_authority: v.optional(v.string()), // "Jawazat" | "Moroor" | "SCE" | "SOCPA" | "CCHI"
+    insurance_provider: v.optional(v.string()),
+    insurance_class: v.optional(v.string()), // "VIP" | "Class A" | "Class B" | "Class C"
+    insurance_policy_number: v.optional(v.string()),
+    file_url: v.optional(v.string()),
+    status: v.string(), // "valid" | "expiring_soon" | "expired"
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_employee", ["employee_id"])
+    .index("by_org", ["organization_id"])
+    .index("by_org_expiry", ["organization_id", "expiry_date_gregorian"]),
+
+  // Company Asset Catalog (Hardware, Vehicles, Machinery, Furniture)
+  assets: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    asset_tag: v.string(), // e.g. "AST-IT-001", "AST-VEH-001"
+    asset_name: v.string(),
+    asset_name_arabic: v.optional(v.string()),
+    category: v.string(), // "it_hardware" | "vehicles_fleet" | "machinery_tools" | "furniture" | "mobile_telecom" | "facility_equipment"
+    sub_category: v.optional(v.string()),
+    brand: v.string(),
+    model: v.string(),
+    serial_number: v.optional(v.string()),
+    barcode_or_qr_code: v.string(),
+    purchase_date: v.string(),
+    purchase_cost: v.number(),
+    currency: v.string(), // "SAR"
+    supplier_id: v.optional(v.string()),
+    warranty_expiry_date: v.optional(v.string()),
+    useful_life_months: v.optional(v.number()),
+    salvage_value: v.optional(v.number()),
+    current_book_value: v.optional(v.number()),
+
+    // Fleet & Vehicle Specific Compliance
+    vehicle_details: v.optional(v.object({
+      plate_number: v.string(),
+      plate_number_arabic: v.optional(v.string()),
+      istimara_expiry: v.string(),
+      fahas_expiry: v.string(),
+      insurance_policy_number: v.string(),
+      insurance_expiry: v.string(),
+      fuel_card_number: v.optional(v.string()),
+      current_odometer_km: v.optional(v.number()),
+    })),
+
+    status: v.string(), // "available" | "pending_handover_acceptance" | "assigned_custody" | "under_maintenance" | "damaged" | "disposed_written_off"
+    current_holder_employee_id: v.optional(v.string()),
+    physical_location: v.string(),
+    notes: v.optional(v.string()),
+    // WhatsApp Approval & Acceptance fields
+    custody_whatsapp_request_id: v.optional(v.string()),
+    custody_acceptance_status: v.optional(v.string()), // "pending" | "accepted" | "rejected"
+    custody_accepted_at: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_asset_tag", ["organization_id", "asset_tag"])
+    .index("by_category", ["organization_id", "category"])
+    .index("by_status", ["organization_id", "status"])
+    .index("by_holder", ["current_holder_employee_id"]),
+
+  // Asset Custody Handover & Return History (سجل تسليم واسترداد العهد)
+  asset_custody_logs: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    asset_id: v.union(v.id("assets"), v.string()),
+    employee_id: v.union(v.id("employees"), v.string()),
+    action: v.string(), // "handover" | "return" | "transfer"
+    assigned_date: v.string(),
+    returned_date: v.optional(v.string()),
+    condition_at_handover: v.string(), // "new" | "excellent" | "good" | "fair"
+    condition_at_return: v.optional(v.string()), // "good" | "damaged" | "lost"
+    handover_form_url: v.optional(v.string()),
+    handed_over_by_user_id: v.string(),
+    received_by_signature: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    // WhatsApp Acceptance / Signoff Details
+    whatsapp_request_id: v.optional(v.string()),
+    acceptance_status: v.optional(v.string()), // "pending" | "accepted" | "rejected"
+    accepted_at: v.optional(v.string()),
+    rejection_reason: v.optional(v.string()),
+    created_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_asset", ["asset_id"])
+    .index("by_employee", ["employee_id"]),
+
+  // Asset Maintenance & Repairs Log
+  asset_maintenance_logs: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    asset_id: v.union(v.id("assets"), v.string()),
+    service_type: v.string(), // "routine_inspection" | "preventative" | "repair" | "accident_damage"
+    service_date: v.string(),
+    cost: v.number(),
+    service_provider: v.string(),
+    invoice_reference: v.optional(v.string()),
+    next_service_due_date: v.optional(v.string()),
+    performed_by: v.string(),
+    notes: v.optional(v.string()),
+    created_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_asset", ["asset_id"]),
+
+  // Targeted Stakeholder Reminders & Activity Notifications
+  stakeholder_notifications: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    category: v.string(), // "legal_document" | "fleet_vehicle" | "it_asset" | "asset_clearance" | "probation_review"
+    target_role: v.string(), // "hr_manager" | "gro_officer" | "fleet_manager" | "it_admin" | "direct_manager" | "finance_manager"
+    target_user_id: v.optional(v.string()),
+    employee_id: v.optional(v.string()),
+    asset_id: v.optional(v.string()),
+    title: v.string(),
+    title_arabic: v.string(),
+    message: v.string(),
+    message_arabic: v.string(),
+    urgency: v.string(), // "info" | "warning" | "critical"
+    action_url: v.optional(v.string()),
+    is_read: v.boolean(),
+    action_taken: v.boolean(),
+    created_at: v.string(),
+  }).index("by_org", ["organization_id"])
+    .index("by_role", ["organization_id", "target_role"])
+    .index("by_urgency", ["organization_id", "urgency"]),
+
+  // Employee Self-Service Asset Audits & Attestations (التدقيق والتحقق الذاتي للعهدة)
+  asset_audits: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    asset_id: v.union(v.id("assets"), v.string()),
+    employee_id: v.union(v.id("employees"), v.string()),
+    audit_campaign_name: v.optional(v.string()), // e.g. "Q4-2026-Self-Audit"
+    audit_date: v.string(), // YYYY-MM-DD
+    reported_condition: v.string(), // "excellent" | "good" | "fair" | "damaged" | "needs_maintenance"
+    operational_status: v.string(), // "fully_operational" | "minor_issues" | "inoperable"
+    qr_scanned_verified: v.boolean(), // true if scanned matching QR tag
+    scanned_tag_payload: v.optional(v.string()),
+    photos: v.array(v.string()), // Base64 or uploaded image URLs
+    gps_latitude: v.optional(v.number()),
+    gps_longitude: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    verification_status: v.string(), // "submitted" | "approved" | "flagged_discrepancy"
+    reviewed_by: v.optional(v.string()),
+    reviewed_at: v.optional(v.string()),
+    created_at: v.string(),
+  }).index("by_organization", ["organization_id"])
+    .index("by_asset", ["asset_id"])
+    .index("by_employee", ["employee_id"])
+    .index("by_status", ["organization_id", "verification_status"]),
+
+  // WhatsApp Bot Continuous Learning & Vendor COA Memory
+  whatsapp_bot_training_memory: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    vendor_name: v.string(), // e.g. "Aldrees Petroleum", "Jarir Bookstore"
+    vendor_cr_or_vat: v.optional(v.string()), // Tax ID or CR
+    learned_account_code: v.string(), // e.g. "5210"
+    learned_account_name: v.string(), // e.g. "Travel & Transportation"
+    confidence_score: v.number(), // 0.0 to 1.0
+    times_trained: v.number(), // Usage counter
+    last_verified_by_user_id: v.optional(v.string()),
+    last_trained_at: v.string(),
+    notes: v.optional(v.string()),
+  }).index("by_org", ["organization_id"])
+    .index("by_vendor", ["organization_id", "vendor_name"]),
+
+  // WhatsApp Unified Message Inbound & Outbound Audit Trail
+  whatsapp_messages: defineTable({
+    organization_id: v.union(v.id("organizations"), v.string()),
+    direction: v.union(v.literal("inbound"), v.literal("outbound")),
+    phone_number: v.string(), // Normalized +9665XXXXXXXX
+    sender_name: v.optional(v.string()),
+    recipient_name: v.optional(v.string()),
+    message_type: v.string(), // "text" | "interactive_button" | "image" | "template"
+    content_text: v.string(),
+    media_url: v.optional(v.string()),
+    action_type: v.optional(v.string()), // "expense_ocr" | "po_approval" | "custody_ack" | "leave_req" | "general"
+    status: v.string(), // "delivered" | "read" | "processed" | "failed"
+    delivery_timestamp: v.string(),
+    metadata: v.optional(v.string()), // JSON metadata
+  }).index("by_org", ["organization_id"])
+    .index("by_phone", ["phone_number"])
+    .index("by_action", ["organization_id", "action_type"]),
 });

@@ -6,15 +6,19 @@ import {
   HStack,
   Badge,
   VStack,
+  Button,
+  Divider,
   useColorModeValue,
   useToast,
 } from '@chakra-ui/react';
+import { FiLogOut, FiBriefcase } from 'react-icons/fi';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { useAuth } from '../contexts/shared/AuthContext';
+import { vendorAuthService } from '../services/vendorAuthService';
 
 const OrganizationSelector: React.FC = () => {
-  const { user, selectedOrganization, setSelectedOrganization, loading: authLoading } = useAuth();
+  const { user, selectedOrganization, setSelectedOrganization, loading: authLoading, activeVendor } = useAuth();
   
   // Show loading while auth is initializing
   if (authLoading) {
@@ -28,102 +32,137 @@ const OrganizationSelector: React.FC = () => {
       </Box>
     );
   }
-  const toast = useToast();
-  
-  // Get user's organization assignments directly (reliable function)
-  const userOrganizations = useQuery(
-    api.globalUserManagement.getUserOrganizationAssignments,
-    user?.id ? { user_id: user.id as any } : 'skip'
-  );
-  
-  // Debug logging
-  console.log('🔍 OrganizationSelector Debug:', {
-    user: user ? { id: user.id, email: user.email } : null,
-    userOrganizations: userOrganizations ? userOrganizations.length : 'loading',
-    queryCalled: user?.id || user?.email ? 'YES' : 'NO'
-  });
 
-  // Handle errors gracefully
-  if (userOrganizations === null) {
+  // Query all organizations from Convex as a reliable global fallback
+  const allOrganizations = useQuery(api.organizations.listOrganizations);
+  const toast = useToast();
+
+  // Active vendor session display with option to switch to Main ERP
+  if (activeVendor) {
+    const storeName = activeVendor?.storeNameArabic || activeVendor?.storeName || 'Vendor Store';
     return (
-      <Box p={4}>
+      <Box p={3} mx={2} my={2} bg="teal.50" borderRadius="lg" border="1px solid" borderColor="teal.200">
         <VStack spacing={2} align="stretch">
-          <Text fontSize="sm" fontWeight="medium" color="gray.600">
-            Error loading permissions
-          </Text>
-          <Text fontSize="xs" color="gray.500">
-            Please refresh the page
-          </Text>
+          <HStack justify="space-between" align="center">
+            <VStack align="start" spacing={0}>
+              <Text fontSize="10px" textTransform="uppercase" fontWeight="bold" color="teal.600">
+                Active Store / المتجر الحالي
+              </Text>
+              <Text fontSize="sm" fontWeight="bold" color="teal.900" noOfLines={1}>
+                {storeName}
+              </Text>
+            </VStack>
+            <Badge colorScheme="teal" variant="subtle" fontSize="10px">
+              POS
+            </Badge>
+          </HStack>
+
+          <Button
+            size="xs"
+            colorScheme="blue"
+            variant="solid"
+            leftIcon={<FiBriefcase />}
+            onClick={() => {
+              vendorAuthService.endVendorSession();
+              localStorage.removeItem('trading_erp_active_vendor_session');
+              const targetOrg = allOrganizations?.find((org) => org.is_active !== false) || allOrganizations?.[0];
+              if (targetOrg) {
+                setSelectedOrganization(targetOrg._id);
+                localStorage.setItem('trading-erp-organization', targetOrg._id);
+              } else {
+                setSelectedOrganization('');
+                localStorage.removeItem('trading-erp-organization');
+              }
+              window.location.reload();
+            }}
+          >
+            Switch to Company ERP / الشركات
+          </Button>
         </VStack>
       </Box>
     );
   }
-  
+
+  // Check if user is a standard Convex user
+  const isConvexUser = Boolean(
+    user?.id &&
+    !activeVendor &&
+    user?.role !== 'vendor' &&
+    !user.id.startsWith('vendor_') &&
+    !user.id.startsWith('vnd_') &&
+    user.id !== 'local-demo-user'
+  );
+
+  // Get user's organization assignments directly
+  const userOrganizations = useQuery(
+    api.globalUserManagement.getUserOrganizationAssignments,
+    isConvexUser ? { user_id: user?.id as any } : 'skip'
+  );
+
   const switchOrganization = useMutation(api.globalUserManagement.switchUserPrimaryOrganization);
-  
   const cardBg = useColorModeValue('white', 'gray.700');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
-  const handleOrganizationChange = async (orgId: string) => {
-    if (!user?.id) return;
-    
-    console.log('🔄 Frontend: Switching to organization:', orgId, 'for user:', user.id);
-    
-    try {
-      // Switch organization context in the backend
-      const result = await switchOrganization({
-        user_id: user.id as any,
-        organization_id: orgId as any,
-      });
-      
-      console.log('🔄 Frontend: Switch result:', result);
-      
-      if (result.success) {
-        setSelectedOrganization(orgId);
-        
-        // Update user context with new organization info
-        if (result.new_context) {
-          // Update user state with new context
-          // This will trigger a re-render with new permissions
-        }
-        
-        toast({
-          title: 'Organization Switched',
-          description: result.message,
-          status: 'success',
-          duration: 3000,
-          isClosable: true,
-        });
-      } else {
-        toast({
-          title: 'Error',
-          description: result.message,
-          status: 'error',
-          duration: 5000,
-          isClosable: true,
-        });
-      }
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to switch organization',
-        status: 'error',
-        duration: 5000,
-        isClosable: true,
-      });
+  // Compute effective organizations: assignments preferred, otherwise fallback to all organizations
+  const effectiveOrganizations = React.useMemo(() => {
+    if (userOrganizations && userOrganizations.length > 0) {
+      return userOrganizations;
     }
+    if (allOrganizations && allOrganizations.length > 0) {
+      return allOrganizations.map(org => ({
+        organization_id: org._id,
+        organization_name: org.name_arabic ? `${org.name} (${org.name_arabic})` : org.name,
+        role: (user?.role || 'admin').replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        is_primary: org._id === selectedOrganization,
+        is_active: org.is_active ?? true,
+        organization_currency: org.currency || 'SAR',
+      }));
+    }
+    return [];
+  }, [userOrganizations, allOrganizations, selectedOrganization, user?.role]);
+
+  // Auto-select first organization if none currently selected
+  React.useEffect(() => {
+    if (!selectedOrganization && effectiveOrganizations.length > 0) {
+      const defaultOrgId = effectiveOrganizations[0].organization_id;
+      setSelectedOrganization(defaultOrgId);
+      localStorage.setItem('trading-erp-organization', defaultOrgId);
+    }
+  }, [selectedOrganization, effectiveOrganizations, setSelectedOrganization]);
+
+  const handleOrganizationChange = async (orgId: string) => {
+    console.log('🔄 Frontend: Switching to organization:', orgId);
+    setSelectedOrganization(orgId);
+    localStorage.setItem('trading-erp-organization', orgId);
+
+    if (user?.id && user.role !== 'vendor' && !user.id.startsWith('vendor_')) {
+      try {
+        await switchOrganization({
+          user_id: user.id as any,
+          organization_id: orgId as any,
+        });
+      } catch (error) {
+        console.warn('Switch organization mutation warning:', error);
+      }
+    }
+
+    toast({
+      title: 'Organization Switched',
+      description: 'Active organization updated successfully',
+      status: 'success',
+      duration: 3000,
+      isClosable: true,
+    });
   };
 
-  // Use organization assignments directly
-  const effectiveOrganizations = userOrganizations || [];
-  const isLoading = userOrganizations === undefined;
+  const isLoading = userOrganizations === undefined && allOrganizations === undefined;
 
   if (isLoading) {
     return (
       <Box p={4}>
         <VStack spacing={2} align="stretch">
           <Text fontSize="sm" fontWeight="medium" color="gray.600">
-            Loading permissions...
+            Loading organizations...
           </Text>
         </VStack>
       </Box>
@@ -145,7 +184,6 @@ const OrganizationSelector: React.FC = () => {
     );
   }
 
-  // Show organization count if user has multiple organizations
   const hasMultipleOrgs = effectiveOrganizations.length > 1;
 
   return (

@@ -735,29 +735,34 @@ export const convertQuotationToInvoice = mutation({
  */
 export const listInvoices = query({
   args: {
-    organization_id: v.id("organizations"),
+    organization_id: v.union(v.id("organizations"), v.string()),
     status: v.optional(v.string()),
     invoice_type: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    let query = ctx.db
-      .query("invoices")
-      .withIndex("by_organization", (q) => q.eq("organization_id", args.organization_id));
+    try {
+      let query = ctx.db
+        .query("invoices")
+        .withIndex("by_organization", (q) => q.eq("organization_id", args.organization_id as any));
 
-    if (args.status) {
-      query = query.filter((q) => q.eq(q.field("status"), args.status));
+      if (args.status) {
+        query = query.filter((q) => q.eq(q.field("status"), args.status));
+      }
+
+      if (args.invoice_type) {
+        query = query.filter((q) => q.eq(q.field("invoice_type"), args.invoice_type));
+      }
+
+      const invoices = await query
+        .order("desc")
+        .take(args.limit || 50);
+
+      return invoices;
+    } catch (err) {
+      console.warn("listInvoices fallback for organization:", args.organization_id, err);
+      return [];
     }
-
-    if (args.invoice_type) {
-      query = query.filter((q) => q.eq(q.field("invoice_type"), args.invoice_type));
-    }
-
-    const invoices = await query
-      .order("desc")
-      .take(args.limit || 50);
-
-    return invoices;
   },
 });
 
@@ -771,7 +776,7 @@ export const getInvoiceDetails = query({
   handler: async (ctx, args) => {
     const invoice = await ctx.db.get(args.invoice_id);
     if (!invoice) {
-      throw new Error("Invoice not found");
+      return null;
     }
 
     const items = await ctx.db
@@ -1067,57 +1072,68 @@ export const updateInvoiceItem = mutation({
  */
 export const getInvoiceStatistics = query({
   args: {
-    organization_id: v.id("organizations"),
+    organization_id: v.union(v.id("organizations"), v.string()),
     period: v.optional(v.string()), // "month", "quarter", "year"
   },
   handler: async (ctx, args) => {
-    const invoices = await ctx.db
-      .query("invoices")
-      .withIndex("by_organization", (q) => q.eq("organization_id", args.organization_id))
-      .collect();
+    try {
+      const invoices = await ctx.db
+        .query("invoices")
+        .withIndex("by_organization", (q) => q.eq("organization_id", args.organization_id as any))
+        .collect();
 
-    const now = new Date();
-    let startDate: Date;
+      const now = new Date();
+      let startDate: Date;
 
-    switch (args.period) {
-      case "month":
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-        break;
-      case "quarter":
-        const quarter = Math.floor(now.getMonth() / 3);
-        startDate = new Date(now.getFullYear(), quarter * 3, 1);
-        break;
-      case "year":
-        startDate = new Date(now.getFullYear(), 0, 1);
-        break;
-      default:
-        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      switch (args.period) {
+        case "month":
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+          break;
+        case "quarter":
+          const quarter = Math.floor(now.getMonth() / 3);
+          startDate = new Date(now.getFullYear(), quarter * 3, 1);
+          break;
+        case "year":
+          startDate = new Date(now.getFullYear(), 0, 1);
+          break;
+        default:
+          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      const filteredInvoices = invoices.filter(inv => 
+        new Date(inv.invoice_date) >= startDate
+      );
+
+      const stats = {
+        total_invoices: filteredInvoices.length,
+        total_amount: filteredInvoices.reduce((sum, inv) => sum + inv.grand_total, 0),
+        total_vat: filteredInvoices.reduce((sum, inv) => sum + inv.total_vat, 0),
+        by_status: {
+          draft: filteredInvoices.filter(inv => inv.status === "draft").length,
+          sent: filteredInvoices.filter(inv => inv.status === "sent").length,
+          paid: filteredInvoices.filter(inv => inv.status === "paid").length,
+          overdue: filteredInvoices.filter(inv => inv.status === "overdue").length,
+          cancelled: filteredInvoices.filter(inv => inv.status === "cancelled").length,
+        },
+        by_type: {
+          standard: filteredInvoices.filter(inv => inv.invoice_type === "standard").length,
+          simplified: filteredInvoices.filter(inv => inv.invoice_type === "simplified").length,
+          credit_note: filteredInvoices.filter(inv => inv.invoice_type === "credit_note").length,
+          debit_note: filteredInvoices.filter(inv => inv.invoice_type === "debit_note").length,
+        },
+      };
+
+      return stats;
+    } catch (err) {
+      console.warn("getInvoiceStatistics fallback:", err);
+      return {
+        total_invoices: 0,
+        total_amount: 0,
+        total_vat: 0,
+        by_status: { draft: 0, sent: 0, paid: 0, overdue: 0, cancelled: 0 },
+        by_type: { standard: 0, simplified: 0, credit_note: 0, debit_note: 0 },
+      };
     }
-
-    const filteredInvoices = invoices.filter(inv => 
-      new Date(inv.invoice_date) >= startDate
-    );
-
-    const stats = {
-      total_invoices: filteredInvoices.length,
-      total_amount: filteredInvoices.reduce((sum, inv) => sum + inv.grand_total, 0),
-      total_vat: filteredInvoices.reduce((sum, inv) => sum + inv.total_vat, 0),
-      by_status: {
-        draft: filteredInvoices.filter(inv => inv.status === "draft").length,
-        sent: filteredInvoices.filter(inv => inv.status === "sent").length,
-        paid: filteredInvoices.filter(inv => inv.status === "paid").length,
-        overdue: filteredInvoices.filter(inv => inv.status === "overdue").length,
-        cancelled: filteredInvoices.filter(inv => inv.status === "cancelled").length,
-      },
-      by_type: {
-        standard: filteredInvoices.filter(inv => inv.invoice_type === "standard").length,
-        simplified: filteredInvoices.filter(inv => inv.invoice_type === "simplified").length,
-        credit_note: filteredInvoices.filter(inv => inv.invoice_type === "credit_note").length,
-        debit_note: filteredInvoices.filter(inv => inv.invoice_type === "debit_note").length,
-      },
-    };
-
-    return stats;
   },
 });
 

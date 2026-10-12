@@ -1,4 +1,5 @@
 import React, { ReactNode } from 'react';
+import { LanguageProvider } from './LanguageContext';
 import { AuthProvider } from './AuthContext';
 import { AppStateProvider } from './AppStateContext';
 
@@ -12,11 +13,13 @@ interface UnifiedProviderProps {
  */
 export const UnifiedProvider: React.FC<UnifiedProviderProps> = ({ children }) => {
   return (
-    <AppStateProvider>
-      <AuthProvider>
-        {children}
-      </AuthProvider>
-    </AppStateProvider>
+    <LanguageProvider>
+      <AppStateProvider>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </AppStateProvider>
+    </LanguageProvider>
   );
 };
 

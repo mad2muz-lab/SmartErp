@@ -4,6 +4,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { googleAuthService, GoogleUser } from '../utils/googleAuth';
 import { sanitizeUserState } from '../utils/clearCache';
+import { LOCAL_CONVEX_URL } from '../utils/convexUrl';
 
 interface User {
   id: string;
@@ -295,13 +296,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('🔍 Starting Google auth for:', googleUser.email);
       
-      // Check if Convex URL is properly configured
-      const convexUrl = import.meta.env.VITE_CONVEX_URL;
-      if (!convexUrl) {
-        throw new Error('Convex URL not configured. Please check environment variables.');
-      }
-      
-      console.log('🔍 Convex URL configured:', convexUrl);
+      console.log('🔍 Local Convex URL configured:', LOCAL_CONVEX_URL);
       
       // CRITICAL SECURITY FIX: Clear ALL cached data before authentication
       setUser(null);

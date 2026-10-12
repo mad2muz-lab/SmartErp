@@ -47,9 +47,18 @@ temp/
 # Convex
 .convex/
 
-# Keep only invoicing-related files
-# Exclude everything except invoicing module
-src/
+# Keep invoicing files and explicitly maintained module files
+# Exclude other source until added to the allow-list
+src/*
+!src/screens/
+src/screens/*
+!src/App.tsx
+!src/components/
+src/components/*
+!src/contexts/
+src/contexts/*
+!src/utils/
+src/utils/*
 !src/screens/InvoiceManagementScreen.tsx
 !src/components/invoices/
 !src/contexts/
@@ -59,9 +68,11 @@ src/
 !src/screens/LoginScreen.tsx
 !src/screens/CustomerListScreen.tsx
 !src/components/CustomerForm.tsx
+!src/screens/HRManagementScreen.tsx
+!src/screens/InternationalHiringDemoScreen.tsx
 
-# Convex files - only include invoicing related
-convex/
+# Convex files - include invoicing and explicitly maintained modules
+convex/*
 !convex/invoiceManagement.ts
 !convex/zatcaInvoiceTemplate.ts
 !convex/customers.ts
@@ -70,6 +81,9 @@ convex/
 !convex/globalUserManagement.ts
 !convex/schema.ts
 !convex/profitSharing.ts
+!convex/leaves.ts
+!convex/whatsappApprovals.ts
+!convex/http.ts
 
 # Keep package files
 package.json

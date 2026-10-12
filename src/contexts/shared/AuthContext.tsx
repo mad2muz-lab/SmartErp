@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, ReactNod
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { isWeb, getStorage } from '../../utils/shared/platform';
+import { vendorAuthService, VendorAccount } from '../../services/vendorAuthService';
 
 interface User {
   id: string;
@@ -22,6 +23,9 @@ interface Organization {
   phone: string;
   address: string;
   is_active: boolean;
+  vat_number?: string;
+  cr_number?: string;
+  category?: string;
 }
 
 interface AuthContextType {
@@ -37,9 +41,12 @@ interface AuthContextType {
   organizationDetails: Organization | null;
   setNavigate: (navigateFn: (path: string, options?: any) => void) => void;
   clearAllAuthData: () => void;
+  activeVendor: VendorAccount | null;
+  loginVendor: (vendor: VendorAccount) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const localDemoAuth = import.meta.env.VITE_LOCAL_DEMO_AUTH === 'true';
 
 const useAuth = () => {
   const context = useContext(AuthContext);
@@ -62,6 +69,8 @@ const useAuth = () => {
       setSelectedOrganization: () => {},
       organizationDetails: null,
       setNavigate: () => {},
+      activeVendor: null,
+      loginVendor: () => {},
     } as AuthContextType;
   }
 
@@ -78,25 +87,87 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedOrganization, setSelectedOrganization] = useState<string | null>(null);
+  const [activeVendor, setActiveVendor] = useState<VendorAccount | null>(() => {
+    return vendorAuthService.getActiveVendorSession();
+  });
   
   // Navigation function - will be set by the app when Router is available
-  // Navigation function - will be set by the app when Router is available
   const navigateRef = React.useRef<((path: string, options?: any) => void) | null>(null);
+
+  // Directly authenticate and set up active vendor in AuthContext
+  const loginVendor = React.useCallback((vendor: VendorAccount) => {
+    vendorAuthService.startVendorSession(vendor);
+    setActiveVendor(vendor);
+    const vendorUser: User = {
+      id: vendor.id,
+      email: vendor.email || `${vendor.phone}@vendor.local`,
+      firstName: vendor.ownerName.split(' ')[0] || vendor.ownerName,
+      lastName: vendor.ownerName.split(' ').slice(1).join(' ') || '',
+      role: 'vendor',
+      organizationId: vendor.organizationId,
+      permissions: ['read', 'write', 'pos', 'vendor'],
+    };
+    setUser(vendorUser);
+    setSelectedOrganization(vendor.organizationId);
+    setLoading(false);
+  }, []);
+
+  // Listen for vendor session change events
+  React.useEffect(() => {
+    const handleVendorSessionChanged = (e: any) => {
+      const vendor = e.detail as VendorAccount | null;
+      setActiveVendor(vendor);
+      if (vendor) {
+        const vendorUser: User = {
+          id: vendor.id,
+          email: vendor.email || `${vendor.phone}@vendor.local`,
+          firstName: vendor.ownerName.split(' ')[0] || vendor.ownerName,
+          lastName: vendor.ownerName.split(' ').slice(1).join(' ') || '',
+          role: 'vendor',
+          organizationId: vendor.organizationId,
+          permissions: ['read', 'write', 'pos', 'vendor'],
+        };
+        setUser(vendorUser);
+        setSelectedOrganization(vendor.organizationId);
+        setLoading(false);
+      }
+    };
+
+    window.addEventListener('vendor-session-changed', handleVendorSessionChanged);
+    return () => window.removeEventListener('vendor-session-changed', handleVendorSessionChanged);
+  }, []);
 
   // Convex mutations
   const createOrUpdateGoogleUser = useMutation(api.auth.createOrUpdateGoogleUser);
   const updateUserOrganization = useMutation(api.auth.updateUserOrganization);
+  const localOrganizations = useQuery(api.organizations.listOrganizations, localDemoAuth ? {} : 'skip');
 
-  // Fetch organization details
-  const organizationDetails = useQuery(
-    api.organizations.getOrganization,
-    selectedOrganization ? { id: selectedOrganization as any } : 'skip'
+  // Check if we should query Convex for organization details
+  const isConvexOrgId = Boolean(
+    selectedOrganization &&
+    !selectedOrganization.startsWith('org_') &&
+    !activeVendor &&
+    user?.role !== 'vendor'
   );
 
-  // Get user's organization assignments
+  // Fetch organization details safely
+  const organizationDetails = useQuery(
+    api.organizations.getOrganization,
+    isConvexOrgId ? { id: selectedOrganization as any } : 'skip'
+  );
+
+  // Get user's organization assignments (only for non-vendor users with Convex IDs)
+  const isConvexUser = Boolean(
+    user?.id &&
+    !activeVendor &&
+    user?.role !== 'vendor' &&
+    !user.id.startsWith('vendor_') &&
+    !(localDemoAuth && user.id === 'local-demo-user')
+  );
+
   const userOrganizations = useQuery(
     api.globalUserManagement.getUserOrganizationAssignments,
-    user?.id ? { user_id: user.id as any } : 'skip'
+    isConvexUser ? { user_id: user.id as any } : 'skip'
   );
   
   // Debug logging for organization query
@@ -104,9 +175,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log('🔍 Organization query debug:', {
       user: user ? { id: user.id, email: user.email } : null,
       userOrganizations: userOrganizations ? userOrganizations.length : 'loading',
-      queryCalled: user?.id ? 'YES' : 'NO'
+      queryCalled: isConvexUser ? 'YES' : 'NO'
     });
-  }, [user, userOrganizations]);
+  }, [user, userOrganizations, isConvexUser]);
 
   // REMOVED: Problematic validation that was causing authentication loops
   // The validation logic was incorrectly flagging valid Convex IDs as invalid
@@ -198,25 +269,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Check localStorage for stored organization
   React.useEffect(() => {
     if (isWeb && !selectedOrganization) {
+      // If vendor session is active, do not load stale organization from localStorage
+      if (activeVendor || vendorAuthService.getActiveVendorSession()) {
+        return;
+      }
       const storedOrg = localStorage.getItem('trading-erp-organization');
-      if (storedOrg) {
+      if (storedOrg === 'k177v5nvxqq0xhx5wm5f7tqwpx7nwdek' || storedOrg === 'q973fq08fsvz5pn5rmdfg74h598g122n') {
+        // Purge obsolete organization ID from previous database
+        console.log('🧹 Purging obsolete organization ID from localStorage:', storedOrg);
+        localStorage.removeItem('trading-erp-organization');
+      } else if (storedOrg && !storedOrg.startsWith('org_')) {
         console.log('🏢 Loading organization from localStorage:', storedOrg);
         setSelectedOrganization(storedOrg);
       }
     }
-  }, [selectedOrganization, isWeb]);
+  }, [selectedOrganization, isWeb, activeVendor]);
 
-  // Last resort: Hardcoded organization for super admin if nothing else works
+  // Last resort: Fallback organization for super admin if nothing else works
   React.useEffect(() => {
     if (user?.role === 'super_admin' && !selectedOrganization && user?.email === 'mad2muz@gmail.com') {
-      const fallbackOrgId = 'k177v5nvxqq0xhx5wm5f7tqwpx7nwdek';
-      console.log('🏢 Using hardcoded organization for super admin:', fallbackOrgId);
+      if (activeVendor) return;
+      const fallbackOrgId = 'k1765vvn46nnjw50rpp4r79q3h7svym9';
+      console.log('🏢 Using active organization for super admin:', fallbackOrgId);
       setSelectedOrganization(fallbackOrgId);
       if (isWeb) {
         localStorage.setItem('trading-erp-organization', fallbackOrgId);
       }
     }
-  }, [user?.role, user?.email, selectedOrganization, isWeb]);
+  }, [user?.role, user?.email, selectedOrganization, isWeb, activeVendor]);
 
   // Manual organization selection for debugging
   React.useEffect(() => {
@@ -267,6 +347,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Initialize authentication state - simplified for fast loading
   useEffect(() => {
+    if (localDemoAuth) return;
+
     const initAuth = async () => {
       // Prevent infinite loops - only run if we don't have a user yet
       if (user) {
@@ -280,6 +362,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setLoading(false);
       }, 1000); // Reduced timeout for faster user experience
       
+      // Check for active vendor session first
+      const currentVendor = vendorAuthService.getActiveVendorSession();
+      if (currentVendor) {
+        console.log('🏪 Active vendor session recognized:', currentVendor.storeName);
+        setActiveVendor(currentVendor);
+        const vendorUser: User = {
+          id: currentVendor.id,
+          email: currentVendor.email || `${currentVendor.phone}@vendor.local`,
+          firstName: currentVendor.ownerName.split(' ')[0] || currentVendor.ownerName,
+          lastName: currentVendor.ownerName.split(' ').slice(1).join(' ') || '',
+          role: 'vendor',
+          organizationId: currentVendor.organizationId,
+          permissions: ['read', 'write', 'pos', 'vendor'],
+        };
+        setUser(vendorUser);
+        setSelectedOrganization(currentVendor.organizationId);
+        setLoading(false);
+        return;
+      }
+
       try {
         const googleAuthService = await getGoogleAuthService();
         
@@ -294,9 +396,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (storedUser) {
           try {
             const appUser = JSON.parse(storedUser);
-            
-            // REMOVED: Problematic validation that was causing authentication loops
-            // The validation logic was incorrectly flagging valid Convex IDs as invalid
+
+            // If stored user is a vendor, preserve authentication
+            if (appUser.role === 'vendor' || (appUser as any).isVendor) {
+              console.log('🏪 Preserving stored vendor user:', appUser.email);
+              setUser(appUser);
+              if (appUser.organizationId) setSelectedOrganization(appUser.organizationId);
+              setLoading(false);
+              return;
+            }
             
             // Simplified authentication - use stored user data for faster loading
             if (googleAuthService.isAuthenticated()) {
@@ -349,15 +457,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
         }
 
-        // No authentication found
-        console.log('🔒 No Google authentication found, user must login');
-        // Clear any legacy data
-        if (isWeb) {
-          localStorage.removeItem('trading-erp-user');
-          localStorage.removeItem('trading-erp-organization');
-        } else {
-          await storage.removeItem('trading-erp-user');
-          await storage.removeItem('trading-erp-organization');
+        // No authentication found (and not a vendor)
+        console.log('🔒 No authentication found, user must login');
+        const activeVendorCheck = vendorAuthService.getActiveVendorSession();
+        if (!activeVendorCheck) {
+          if (isWeb) {
+            localStorage.removeItem('trading-erp-user');
+            localStorage.removeItem('trading-erp-organization');
+          } else {
+            await storage.removeItem('trading-erp-user');
+            await storage.removeItem('trading-erp-organization');
+          }
         }
         
         // Load saved organization from storage
@@ -385,6 +495,36 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     initAuth();
   }, []);
+
+  useEffect(() => {
+    if (!localDemoAuth || localOrganizations === undefined) return;
+    const organization = localOrganizations.find((item) => item.slug === 'local-mobilization-test')
+      || localOrganizations[0];
+
+    if (!organization) {
+      setUser(null);
+      setSelectedOrganization(null);
+      setLoading(false);
+      return;
+    }
+
+    const localUser: User = {
+      id: 'local-demo-user',
+      email: 'local@smart-erp.test',
+      firstName: 'Local',
+      lastName: 'Tester',
+      role: 'super_admin',
+      organizationId: organization._id,
+      permissions: ['*'],
+    };
+    setUser(localUser);
+    setSelectedOrganization(organization._id);
+    setLoading(false);
+    if (isWeb) {
+      localStorage.setItem('trading-erp-user', JSON.stringify(localUser));
+      localStorage.setItem('trading-erp-organization', organization._id);
+    }
+  }, [localOrganizations]);
 
   const login = async (email: string, password: string) => {
     setLoading(true);
@@ -554,22 +694,33 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const logout = async () => {
     setUser(null);
     setSelectedOrganization(null);
+    setActiveVendor(null);
+    vendorAuthService.endVendorSession();
     
     if (isWeb) {
       localStorage.removeItem('trading-erp-user');
       localStorage.removeItem('trading-erp-organization');
+      localStorage.removeItem('trading_erp_active_vendor_session');
+      localStorage.removeItem('manual-organization');
+      sessionStorage.clear();
     } else {
       await storage.removeItem('trading-erp-user');
       await storage.removeItem('trading-erp-organization');
     }
     
-    const googleAuthService = await getGoogleAuthService();
-    googleAuthService.logout();
+    try {
+      const googleAuthService = await getGoogleAuthService();
+      googleAuthService.logout();
+    } catch (e) {
+      // Ignore if not google user
+    }
     
     if (isWeb) {
       const navFn = navigateRef.current;
       if (navFn) {
         navFn('/login');
+      } else {
+        window.location.href = '/login';
       }
     }
   };
@@ -590,6 +741,27 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     navigateRef.current = navigateFn;
   }, []);
 
+  // Compute effective organization details, prioritizing registered vendor profile
+  const effectiveOrgDetails = React.useMemo(() => {
+    if (activeVendor) {
+      return {
+        _id: activeVendor.organizationId,
+        name: activeVendor.storeNameArabic || activeVendor.storeName,
+        currency: activeVendor.currency || 'SAR',
+        slug: activeVendor.id,
+        email: activeVendor.email || '',
+        phone: activeVendor.phone,
+        address: 'المملكة العربية السعودية',
+        is_active: true,
+        vat_number: activeVendor.vatNumber || '310860308200003',
+        cr_number: activeVendor.crNumber || '1010123456',
+        category: activeVendor.businessCategory,
+      } as Organization;
+    }
+    if (organizationDetails) return organizationDetails;
+    return null;
+  }, [organizationDetails, activeVendor]);
+
   const contextValue: AuthContextType = {
     user,
     loading,
@@ -600,9 +772,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: !!user, // Only approved users are considered authenticated
     selectedOrganization,
     setSelectedOrganization: handleSetSelectedOrganization,
-    organizationDetails: organizationDetails || null,
+    organizationDetails: effectiveOrgDetails,
     setNavigate: safeSetNavigate,
     clearAllAuthData,
+    activeVendor,
+    loginVendor,
   };
 
   return (

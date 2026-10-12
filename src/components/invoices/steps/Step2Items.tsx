@@ -31,10 +31,12 @@ import {
   InputRightElement,
   Tooltip
 } from '@chakra-ui/react';
-import { FiPlus, FiTrash2, FiUpload, FiDownload, FiDollarSign, FiSearch } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiUpload, FiDownload, FiSearch } from 'react-icons/fi';
+import { SaudiRiyalIcon } from '../../icons/SaudiRiyalIcon';
 import { formatCurrencyDisplay } from '../../../utils/invoiceCurrencyUtils';
 import { SmartDropdown } from '../../SmartDropdown';
 import { useAuth } from '../../../contexts/shared/AuthContext';
+import { isConvexOrgId } from '../../../utils/accountingUtils';
 import { useQuery } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 
@@ -95,9 +97,11 @@ const Step2Items: React.FC<Step2ItemsProps> = ({
   const bgColor = useColorModeValue('white', 'gray.800');
   const borderColor = useColorModeValue('gray.200', 'gray.600');
 
+  const isConvexOrg = isConvexOrgId(selectedOrganization);
+
   // Fetch inventory items
   const inventory = useQuery(api.inventory.listInventory, 
-    selectedOrganization ? { organization_id: selectedOrganization } : "skip"
+    isConvexOrg ? { organization_id: selectedOrganization as any } : "skip"
   );
 
   const units = [
@@ -240,7 +244,7 @@ const Step2Items: React.FC<Step2ItemsProps> = ({
         >
           Add Row
         </Button>
-        <Button size="sm" colorScheme="orange" leftIcon={<FiDollarSign />}>
+        <Button size="sm" colorScheme="orange" leftIcon={<SaudiRiyalIcon />}>
           Check Markup
         </Button>
       </HStack>

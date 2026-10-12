@@ -64,6 +64,7 @@ import {
 import { useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { Id } from '../../../convex/_generated/dataModel';
+import FormattedCurrencyDisplay from '../FormattedCurrencyDisplay';
 
 interface ZATCAComplianceDashboardProps {
   isOpen: boolean;
@@ -266,7 +267,7 @@ const ZATCAComplianceDashboard: React.FC<ZATCAComplianceDashboardProps> = ({
                     <Stat>
                       <StatLabel>Total Amount</StatLabel>
                       <StatNumber fontSize="lg" color="green.500">
-                        {invoice.grand_total?.toFixed(2) || '0.00'} SAR
+                        <FormattedCurrencyDisplay amount={invoice.grand_total || 0} currency="SAR" />
                       </StatNumber>
                     </Stat>
                   </GridItem>

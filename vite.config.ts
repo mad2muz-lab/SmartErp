@@ -15,8 +15,12 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    host: true,
     port: 3000,
     hmr: false, // Completely disable WebSocket/HMR
+    watch: {
+      ignored: ['**/public/tesseract/**', '**/dist/**'],
+    },
   },
   build: {
     outDir: 'dist',

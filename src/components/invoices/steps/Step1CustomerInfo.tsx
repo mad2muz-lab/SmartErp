@@ -21,6 +21,7 @@ import { useQuery, useConvex } from 'convex/react';
 import { api } from '../../../../convex/_generated/api';
 import { Id } from '../../../../convex/_generated/dataModel';
 import { useAuth } from '../../../contexts/shared/AuthContext';
+import { isConvexOrgId } from '../../../utils/accountingUtils';
 
 interface InvoiceItem {
   id: string;
@@ -78,9 +79,11 @@ const Step1CustomerInfo: React.FC<Step1CustomerInfoProps> = ({
   const { selectedOrganization } = useAuth();
   const client = useConvex();
   
+  const isConvexOrg = isConvexOrgId(selectedOrganization);
+
   // Fetch customers
   const customers = useQuery(api.customers.listCustomers, 
-    selectedOrganization ? { organization_id: selectedOrganization } : "skip"
+    isConvexOrg ? { organization_id: selectedOrganization as any } : "skip"
   );
 
   // Load quotation data if quotationId is provided
@@ -120,28 +123,32 @@ const Step1CustomerInfo: React.FC<Step1CustomerInfoProps> = ({
         if (quotationItems && quotationItems.length > 0) {
           console.log('📦 Quotation items found:', quotationItems.length);
           
-          const items: InvoiceItem[] = quotationItems.map((item, index) => ({
-            id: `item-${index}`,
-            description: item.description,
-            description_arabic: item.description_arabic,
-            quantity: item.quantity,
-            unit: item.unit,
-            unit_price: item.unit_price,
-            discount_percentage: item.discount_percentage || 0,
-            vat_rate: item.vat_rate,
-            supply_type: item.supply_type,
-            supply_type_arabic: item.supply_type_arabic || '',
-            is_zero_rated: item.is_zero_rated || false,
-            is_exempt: item.is_exempt || false,
-            inventory_id: item.inventory_id,
-            sku: item.sku,
-            purchase_price: item.purchase_price || 0,
-            markup_amount: item.markup_amount || 0,
-            inventory_name: item.inventory_name || item.description,
-            notes: item.notes || '',
-            total_price: item.total_price || (item.quantity * item.unit_price),
-            vat_amount: item.vat_amount || 0
-          }));
+          const items: InvoiceItem[] = quotationItems
+            .filter((item: any) => !item.is_section_header && (item.quantity > 0 || item.unit_price > 0))
+            .map((item: any, index: number) => ({
+              id: `item-${index}`,
+              description: item.wbs_code
+                ? `[${item.wbs_code}] ${item.item_name || item.item_title || item.description || 'Item'}`
+                : (item.item_name || item.item_title || item.description || 'Item'),
+              description_arabic: item.description_arabic || item.item_name_arabic || '',
+              quantity: item.quantity,
+              unit: item.unit || 'pcs',
+              unit_price: item.unit_price,
+              discount_percentage: item.discount_percentage || 0,
+              vat_rate: item.vat_rate || 15,
+              supply_type: item.supply_type || 'standard',
+              supply_type_arabic: item.supply_type_arabic || '',
+              is_zero_rated: item.is_zero_rated || false,
+              is_exempt: item.is_exempt || false,
+              inventory_id: item.inventory_id,
+              sku: item.inventory_sku || item.sku,
+              purchase_price: item.purchase_price || 0,
+              markup_amount: item.markup_amount || 0,
+              inventory_name: item.inventory_name || item.item_name || item.description,
+              notes: item.notes || item.description || '',
+              total_price: item.total_price || (item.quantity * item.unit_price),
+              vat_amount: item.vat_amount || 0
+            }));
 
           setFormData(prev => ({
             ...prev,

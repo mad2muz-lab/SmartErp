@@ -36,12 +36,12 @@ import {
   FiArrowRight, 
   FiArrowDown, 
   FiFileText, 
-  FiDollarSign, 
   FiUser, 
   FiClock,
   FiEye,
   FiExternalLink
 } from 'react-icons/fi';
+import { SaudiRiyalIcon } from '../icons/SaudiRiyalIcon';
 import { formatCurrencyDisplay } from '../../utils/invoiceCurrencyUtils';
 
 interface ProcessFlowStep {
@@ -206,7 +206,7 @@ const ProcessFlowTracker: React.FC<ProcessFlowTrackerProps> = ({
               </HStack>
               {step.financial_data && (
                 <HStack spacing={1}>
-                  <Icon as={FiDollarSign} />
+                  <SaudiRiyalIcon boxSize={4} />
                   <Text className="invoice-currency-sar">
                     {formatCurrencyDisplay(step.financial_data.amount, step.financial_data.currency as any)}
                   </Text>

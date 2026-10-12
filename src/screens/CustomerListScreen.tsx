@@ -44,8 +44,12 @@ import {
   FiGlobe,
 } from 'react-icons/fi';
 import { toast as hotToast } from 'react-hot-toast';
+import { useLanguage } from '../contexts/shared/LanguageContext';
+import { isConvexOrgId } from '../utils/accountingUtils';
+import FormattedCurrencyDisplay from '../components/FormattedCurrencyDisplay';
 
 const CustomerListScreen: React.FC = () => {
+  const { t, dir } = useLanguage();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -61,11 +65,14 @@ const CustomerListScreen: React.FC = () => {
 
   // Form state - removed as we're using CustomerForm component
 
+  const isConvex = isConvexOrgId(selectedOrganization);
+
   // Fetch customers
-  const customers = useQuery(
+  const rawCustomers = useQuery(
     api.customers.listCustomers,
-    selectedOrganization ? { organization_id: selectedOrganization as any } : 'skip'
+    isConvex ? { organization_id: selectedOrganization as any } : 'skip'
   );
+  const customers = isConvex ? rawCustomers : [];
 
   // Mutations - MUST be called before any conditional returns
   const createCustomer = useMutation(api.customers.createCustomer);
@@ -171,6 +178,12 @@ const CustomerListScreen: React.FC = () => {
       return;
     }
 
+    if (!isConvex) {
+      hotToast.success(isEditMode ? 'Customer updated (offline mode)' : 'Customer created (offline mode)');
+      onClose();
+      return;
+    }
+
     try {
       if (isEditMode && selectedCustomer) {
         await updateCustomer({
@@ -194,6 +207,10 @@ const CustomerListScreen: React.FC = () => {
   };
 
   const handleDelete = async (customerId: string) => {
+    if (!isConvex) {
+      hotToast.success('Customer deleted (offline mode)');
+      return;
+    }
     if (window.confirm('Are you sure you want to delete this customer?')) {
       try {
         await deleteCustomer({ id: customerId as any });
@@ -222,20 +239,21 @@ const CustomerListScreen: React.FC = () => {
       overflowY="auto"
       maxH={isMobile ? "100vh" : "auto"}
       position="relative"
+      dir={dir}
     >
       <VStack spacing={6} align="stretch">
         {/* Header */}
         <HStack justify="space-between">
           <Box>
-            <Heading size="lg" mb={2}>Customer Management</Heading>
-            <Text color="gray.600">Manage your customer database and relationships</Text>
+            <Heading size="lg" mb={2}>{t('customersTitle')}</Heading>
+            <Text color="gray.600">{t('customersSub')}</Text>
           </Box>
           <Button
             colorScheme="blue"
             leftIcon={<FiPlus />}
             onClick={() => handleOpenModal()}
           >
-            Add Customer
+            {t('addCustomerBtn')}
           </Button>
         </HStack>
 
@@ -247,7 +265,7 @@ const CustomerListScreen: React.FC = () => {
                 <FiSearch color="gray.300" />
               </InputLeftElement>
               <Input
-                placeholder="Search customers by name, company, or email..."
+                placeholder={t('searchCustomersPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -264,26 +282,26 @@ const CustomerListScreen: React.FC = () => {
                 columns={[
                   {
                     key: 'customer_company_name',
-                    label: 'Customer/Company Name',
+                    label: t('colCustomerName'),
                     render: (value) => <Text fontWeight="medium">{value}</Text>
                   },
                   {
                     key: 'customer_type',
-                    label: 'Type',
+                    label: t('colType'),
                     render: (value) => (
                       <Badge colorScheme={value === 'business' ? 'blue' : 'green'}>
-                        {value}
+                        {value === 'business' ? t('businessType') : t('individualType')}
                       </Badge>
                     )
                   },
                   {
                     key: 'contact_person',
-                    label: 'Contact',
+                    label: t('colContactPerson', t('colContact', 'Contact Person')),
                     render: (value) => value || '-'
                   },
                   {
                     key: 'email',
-                    label: 'Email',
+                    label: t('colEmail'),
                     render: (value, row) => (
                       value ? (
                         <HStack>
@@ -295,7 +313,7 @@ const CustomerListScreen: React.FC = () => {
                   },
                   {
                     key: 'phone',
-                    label: 'Phone',
+                    label: t('colPhone'),
                     render: (value, row) => (
                       value ? (
                         <HStack>
@@ -307,12 +325,17 @@ const CustomerListScreen: React.FC = () => {
                   },
                   {
                     key: 'credit_limit',
-                    label: 'Credit Limit',
-                    render: (value) => `ر.س ${value?.toLocaleString() || '0'}`
+                    label: t('colCreditLimit'),
+                    render: (value) => (
+                      <FormattedCurrencyDisplay
+                        amount={Number(value) || 0}
+                        currency="SAR"
+                      />
+                    )
                   },
                   {
                     key: 'reliability_rating',
-                    label: 'Reliability',
+                    label: t('colReliability'),
                     render: (value, row) => (
                       <Badge colorScheme={getReliabilityColor(value || 0)}>
                         {value || 0}/10
@@ -321,7 +344,7 @@ const CustomerListScreen: React.FC = () => {
                   },
                   {
                     key: 'actions',
-                    label: 'Actions',
+                    label: t('colActions'),
                     isAction: true,
                     render: (value, row) => (
                       <HStack spacing={2}>

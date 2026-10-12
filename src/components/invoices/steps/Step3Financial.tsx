@@ -24,7 +24,7 @@ import {
   Tooltip,
   Button
 } from '@chakra-ui/react';
-import { FiDollarSign } from 'react-icons/fi';
+import { SaudiRiyalIcon } from '../../icons/SaudiRiyalIcon';
 import { formatCurrencyDisplay } from '../../../utils/invoiceCurrencyUtils';
 
 interface InvoiceItem {
@@ -79,7 +79,7 @@ const Step3Financial: React.FC<Step3FinancialProps> = ({
   setFormData
 }) => {
   const currencies = [
-    { value: 'SAR', label: 'Saudi Riyal (ر.س)' },
+    { value: 'SAR', label: '\uE900 Saudi Riyal' },
     { value: 'USD', label: 'US Dollar ($)' },
     { value: 'EUR', label: 'Euro (€)' },
     { value: 'GBP', label: 'British Pound (£)' },
@@ -313,7 +313,7 @@ const Step3Financial: React.FC<Step3FinancialProps> = ({
                   <Text>Markup Percentage</Text>
                   <Tooltip label="Set markup percentage to apply to all items">
                     <Box>
-                      <FiDollarSign />
+                      <SaudiRiyalIcon boxSize={4} />
                     </Box>
                   </Tooltip>
                 </HStack>
